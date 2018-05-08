@@ -54,22 +54,22 @@ unsigned long time_elapsed;
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Declaring global variables
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-byte last_channel_1, last_channel_2, last_channel_3, last_channel_4;
+byte last_channel_1, last_channel_2, last_channel_3, last_channel_4, last_channel_5;
 byte eeprom_data[36];
 byte highByte, lowByte;
-volatile int receiver_input_channel_1, receiver_input_channel_2, receiver_input_channel_3, receiver_input_channel_4;
+volatile int receiver_input_channel_1, receiver_input_channel_2, receiver_input_channel_3, receiver_input_channel_4, receiver_input_channel_5;
 int counter_channel_1, counter_channel_2, counter_channel_3, counter_channel_4, loop_counter;
 int esc_1, esc_2, esc_3, esc_4, esc_5, esc_6;
 int throttle, battery_voltage;
 int cal_int, start, gyro_address;
-int receiver_input[5];
+int receiver_input[6];
 int temperature;
 int acc_axis[4], gyro_axis[4];
 float roll_level_adjust, pitch_level_adjust;
 
 long acc_x, acc_y, acc_z, acc_total_vector;
 unsigned long timer_channel_1, timer_channel_2, timer_channel_3, timer_channel_4, timer_channel_5, timer_channel_6, esc_timer, esc_loop_timer;
-unsigned long timer_1, timer_2, timer_3, timer_4, current_time;
+unsigned long timer_1, timer_2, timer_3, timer_4, timer_5, current_time;
 unsigned long loop_timer;
 double gyro_pitch, gyro_roll, gyro_yaw;
 double gyro_axis_cal[4];
@@ -85,7 +85,7 @@ int val;
 //Setup routine
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void setup(){
-  Serial.begin(57600);
+  //Serial.begin(57600);
   //Copy the EEPROM data for fast access data.
   for(start = 0; start <= 35; start++)eeprom_data[start] = EEPROM.read(start);
   start = 0;                                                                //Set start back to zero.
@@ -102,6 +102,7 @@ void setup(){
 
   //Use the led on the Arduino for startup indication.
   digitalWrite(12,HIGH);                                                    //Turn on the warning led.
+  //PORTB |= B00010000;
 
   //Check the EEPROM signature to make sure that the setup program is executed.
   while(eeprom_data[33] != 'J' || eeprom_data[34] != 'M' || eeprom_data[35] != 'B')delay(10);
@@ -141,13 +142,14 @@ void setup(){
   gyro_axis_cal[2] /= 2000;                                                 //Divide the pitch total by 2000.
   gyro_axis_cal[3] /= 2000;                                                 //Divide the yaw total by 2000.
 
-  PCICR |= (1 << PCIE0);                                                    // set PCIE0 to enable PCMSK0 scan for port 8
-  PCICR |= (1 << PCIE2);
+  PCICR |= (1 << PCIE0);                                                    // Enable pin change interrupt on enabled pins PCINT[7:0] - pins 8-13
+  PCICR |= (1 << PCIE2);                                                    // Enable pin change interrupt on enabled pins PCINT[23:16]
 
   PCMSK0 |= (1 << PCINT0);                                                  // set PCINT0 (digital input 8) to trigger an interrupt on state change.
-  PCMSK2 |= (1 << PCINT23);                                                 // set PCINT23 (digital input 7) to trigger an interrupt on state change.
-  PCMSK2 |= (1 << PCINT20);                                                 // set PCINT20 (digital input 4) to trigger an interrupt on state change.
+  PCMSK0 |= (1 << PCINT5);                                                  // set PCINT5 - PB5 (digital input 13) to trigger an interrupt on state change.
   PCMSK2 |= (1 << PCINT18);                                                 // set PCINT18 (digital input 2) to trigger an interrupt on state change.
+  PCMSK2 |= (1 << PCINT20);                                                 // set PCINT20 (digital input 4) to trigger an interrupt on state change.
+  PCMSK2 |= (1 << PCINT23);                                                 // set PCINT23 (digital input 7) to trigger an interrupt on state change.
 
   //Wait until the receiver is active and the throtle is set to the lower position.
   while(receiver_input_channel_3 < 990 || receiver_input_channel_3 > 1020 || receiver_input_channel_4 < 1400){
@@ -183,6 +185,8 @@ void setup(){
 
   //When everything is done, turn off the led.
   digitalWrite(12,LOW);                                                     //Turn off the warning led.
+  //PORTB &= B11101111;
+  
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Main program loop
@@ -192,7 +196,7 @@ void loop(){
   //print_telemetry_default();
   //print_telemetry();
   //print_string();
-  read_telemetry();
+  //read_telemetry();
 
   //65.5 = 1 deg/sec (check the datasheet of the MPU-6050 for more information).
   gyro_roll_input = (gyro_roll_input * 0.7) + ((gyro_roll / 65.5) * 0.3);   //Gyro pid input is deg/sec.
@@ -234,6 +238,9 @@ void loop(){
 
   pitch_level_adjust = angle_pitch * 15;                                    //Calculate the pitch angle correction
   roll_level_adjust = angle_roll * 15;                                      //Calculate the roll angle correction
+
+  if (receiver_input_channel_5 > 1500)auto_level=true;
+  else auto_level=false;
 
   if(!auto_level){                                                          //If the quadcopter is not in auto-level mode
     pitch_level_adjust = 0;                                                 //Set the pitch angle correction to zero.
@@ -374,7 +381,7 @@ void loop(){
   //the Q&A page: 
   //! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! !
     
-  if(micros() - loop_timer > 4050)digitalWrite(12, HIGH);                   //Turn on the LED if the loop time exceeds 4050us.
+  if(micros() - loop_timer > 4050)digitalWrite(12, HIGH);                   //Turn on the LED if the loop time exceeds 4050us.PORTB |= B00010000;
   
   //All the information for controlling the motor's is available.
   //The refresh rate is 250Hz. That means the esc's need there pulse every 4ms.
@@ -473,6 +480,17 @@ ISR(PCINT0_vect){
     last_channel_4 = 0;                                        //Remember current input state
     receiver_input[4] = current_time - timer_4;                 //Channel 4 is current_time - timer_4
   }
+  //Channel 5=========================================
+  if(PINB & B00100000 ){                                       //Is input 13 high?
+    if(last_channel_5 == 0){                                   //Input 13 changed from 0 to 1
+      last_channel_5 = 1;                                      //Remember current input state
+      timer_5 = current_time;                                  //Set timer_5 to current_time
+    }
+  }
+  else if(last_channel_5 == 1){                                //Input 13 is not high and changed from 1 to 0
+    last_channel_5 = 0;                                        //Remember current input state
+    receiver_input[5] = current_time - timer_5;                 //Channel 5 is current_time - timer_5
+  }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -490,6 +508,7 @@ void read_imu(){
     receiver_input_channel_2 = convert_receiver_channel(2);                 //Convert the actual receiver signals for roll to the standard 1000 - 2000us.
     receiver_input_channel_3 = convert_receiver_channel(3);                 //Convert the actual receiver signals for throttle to the standard 1000 - 2000us.
     receiver_input_channel_4 = convert_receiver_channel(4);                 //Convert the actual receiver signals for yaw to the standard 1000 - 2000us.
+    receiver_input_channel_5 = convert_receiver_channel(5);
     
     while(Wire.available() < 14);                                           //Wait until the 14 bytes are received.
     acc_axis[1] = Wire.read()<<8|Wire.read();                               //Add the low and high byte to the acc_x variable.
@@ -572,28 +591,42 @@ int convert_receiver_channel(byte function){
   int low, center, high, actual;
   int difference;
 
-  channel = eeprom_data[function + 23] & 0b00000111;                           //What channel corresponds with the specific function
-  if(eeprom_data[function + 23] & 0b10000000)reverse = 1;                      //Reverse channel when most significant bit is set
-  else reverse = 0;                                                            //If the most significant is not set there is no reverse
-
-  actual = receiver_input[channel];                                            //Read the actual receiver value for the corresponding function
-  low = (eeprom_data[channel * 2 + 15] << 8) | eeprom_data[channel * 2 + 14];  //Store the low value for the specific receiver input channel
-  center = (eeprom_data[channel * 2 - 1] << 8) | eeprom_data[channel * 2 - 2]; //Store the center value for the specific receiver input channel
-  high = (eeprom_data[channel * 2 + 7] << 8) | eeprom_data[channel * 2 + 6];   //Store the high value for the specific receiver input channel
-
-  if(actual < center){                                                         //The actual receiver value is lower than the center value
-    if(actual < low)actual = low;                                              //Limit the lowest value to the value that was detected during setup
-    difference = ((long)(center - actual) * (long)500) / (center - low);       //Calculate and scale the actual value to a 1000 - 2000us value
-    if(reverse == 1)return 1500 + difference;                                  //If the channel is reversed
-    else return 1500 - difference;                                             //If the channel is not reversed
+  if(function == 5){
+    if(receiver_input[5] > 1500) return 2000;
+    else return 1000;
   }
+<<<<<<< HEAD
   else if(actual > center){                                                    //The actual receiver value is higher than the center value
     if(actual > high)actual = high;                                            //Limit the lowest value to the value that was detected during setup
     difference = ((long)(actual - center) * (long)500) / (high - center);      //Calculate and scale the actual value to a 1000 - 2000us value
     if(reverse == 1)return 1500 - difference;                                  //If the channel is reversed
     else return 1500 + difference;                                             //If the channel is not reversed
+=======
+  else{
+    channel = eeprom_data[function + 23] & 0b00000111;                           //What channel corresponds with the specific function
+    if(eeprom_data[function + 23] & 0b10000000)reverse = 1;                      //Reverse channel when most significant bit is set
+    else reverse = 0;                                                            //If the most significant is not set there is no reverse
+
+    actual = receiver_input[channel];                                            //Read the actual receiver value for the corresponding function
+    low = (eeprom_data[channel * 2 + 15] << 8) | eeprom_data[channel * 2 + 14];  //Store the low value for the specific receiver input channel
+    center = (eeprom_data[channel * 2 - 1] << 8) | eeprom_data[channel * 2 - 2]; //Store the center value for the specific receiver input channel
+    high = (eeprom_data[channel * 2 + 7] << 8) | eeprom_data[channel * 2 + 6];   //Store the high value for the specific receiver input channel
+
+    if(actual < center){                                                         //The actual receiver value is lower than the center value
+      if(actual < low)actual = low;                                              //Limit the lowest value to the value that was detected during setup
+      difference = ((long)(center - actual) * (long)500) / (center - low);       //Calculate and scale the actual value to a 1000 - 2000us value
+      if(reverse == 1)return 1500 + difference;                                  //If the channel is reversed
+      else return 1500 - difference;                                             //If the channel is not reversed
+    }
+    else if(actual > center){                                                    //The actual receiver value is higher than the center value
+      if(actual > high)actual = high;                                            //Limit the lowest value to the value that was detected during setup
+      difference = ((long)(actual - center) * (long)500) / (high - center);      //Calculate and scale the actual value to a 1000 - 2000us value
+      if(reverse == 1)return 1500 - difference;                                  //If the channel is reversed
+      else return 1500 + difference;                                             //If the channel is not reversed
+    }
+    else return 1500;
+>>>>>>> Added the modified Arduino project files
   }
-  else return 1500;
 }
 
 void initialise_imu(){
@@ -622,6 +655,7 @@ void initialise_imu(){
     while(Wire.available() < 1);                                               //Wait until the 6 bytes are received
     if(Wire.read() != 0x08){                                                   //Check if the value is 0x08
       digitalWrite(12,HIGH);                                                   //Turn on the warning led
+      //PORTB |= B00010000;
       while(1)delay(10);                                                       //Stay in this loop for ever
     }
 
@@ -658,3 +692,41 @@ void read_telemetry(){
       }
     }
 }
+<<<<<<< HEAD
+=======
+
+
+int read_line(char* buffer, int bufsize)
+{
+  for (int index = 0; index < bufsize; index++) {
+    // Wait until characters are available
+    while (Serial.available() == 0) {
+    }
+
+    char ch = Serial.read(); // read next character
+    Serial.print(ch); // echo it back: useful with the serial monitor (optional)
+
+    if (ch == '\n') {
+      buffer[index] = 0; // end of line reached: null terminate string
+      return index; // success: return length of string (zero if string is empty)
+    }
+
+    buffer[index] = ch; // Append character to buffer
+  }
+
+  // Reached end of buffer, but have not seen the end-of-line yet.
+  // Discard the rest of the line (safer than returning a partial line).
+
+  char ch;
+  do {
+    // Wait until characters are available
+    while (Serial.available() == 0) {
+    }
+    ch = Serial.read(); // read next character (and discard it)
+    Serial.print(ch); // echo it back
+  } while (ch != '\n');
+
+  buffer[0] = 0; // set buffer to empty string even though it should not be used
+  return -1; // error: return negative one to indicate the input was too long
+}
+>>>>>>> Added the modified Arduino project files
