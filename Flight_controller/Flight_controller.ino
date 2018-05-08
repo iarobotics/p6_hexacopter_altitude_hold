@@ -595,13 +595,6 @@ int convert_receiver_channel(byte function){
     if(receiver_input[5] > 1500) return 2000;
     else return 1000;
   }
-<<<<<<< HEAD
-  else if(actual > center){                                                    //The actual receiver value is higher than the center value
-    if(actual > high)actual = high;                                            //Limit the lowest value to the value that was detected during setup
-    difference = ((long)(actual - center) * (long)500) / (high - center);      //Calculate and scale the actual value to a 1000 - 2000us value
-    if(reverse == 1)return 1500 - difference;                                  //If the channel is reversed
-    else return 1500 + difference;                                             //If the channel is not reversed
-=======
   else{
     channel = eeprom_data[function + 23] & 0b00000111;                           //What channel corresponds with the specific function
     if(eeprom_data[function + 23] & 0b10000000)reverse = 1;                      //Reverse channel when most significant bit is set
@@ -625,7 +618,6 @@ int convert_receiver_channel(byte function){
       else return 1500 + difference;                                             //If the channel is not reversed
     }
     else return 1500;
->>>>>>> Added the modified Arduino project files
   }
 }
 
@@ -692,41 +684,3 @@ void read_telemetry(){
       }
     }
 }
-<<<<<<< HEAD
-=======
-
-
-int read_line(char* buffer, int bufsize)
-{
-  for (int index = 0; index < bufsize; index++) {
-    // Wait until characters are available
-    while (Serial.available() == 0) {
-    }
-
-    char ch = Serial.read(); // read next character
-    Serial.print(ch); // echo it back: useful with the serial monitor (optional)
-
-    if (ch == '\n') {
-      buffer[index] = 0; // end of line reached: null terminate string
-      return index; // success: return length of string (zero if string is empty)
-    }
-
-    buffer[index] = ch; // Append character to buffer
-  }
-
-  // Reached end of buffer, but have not seen the end-of-line yet.
-  // Discard the rest of the line (safer than returning a partial line).
-
-  char ch;
-  do {
-    // Wait until characters are available
-    while (Serial.available() == 0) {
-    }
-    ch = Serial.read(); // read next character (and discard it)
-    Serial.print(ch); // echo it back
-  } while (ch != '\n');
-
-  buffer[0] = 0; // set buffer to empty string even though it should not be used
-  return -1; // error: return negative one to indicate the input was too long
-}
->>>>>>> Added the modified Arduino project files
