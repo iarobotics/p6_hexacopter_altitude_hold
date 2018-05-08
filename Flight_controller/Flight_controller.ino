@@ -666,7 +666,11 @@ void print_telemetry_default(){
 
 void print_string(){
   if(start == 2){
+<<<<<<< HEAD
     Serial.println(F("Now we try printting a long string"));
+=======
+    Serial.println(F("Now we try printting a very very long string"));
+>>>>>>> Added the modified Arduino project files
   }
 }
 
