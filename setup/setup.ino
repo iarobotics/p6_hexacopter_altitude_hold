@@ -19,17 +19,17 @@
 #include <EEPROM.h>             //Include the EEPROM.h library so we can store information onto the EEPROM
 
 //Declaring Global Variables
-byte last_channel_1, last_channel_2, last_channel_3, last_channel_4;
+byte last_channel_1, last_channel_2, last_channel_3, last_channel_4, last_channel_5;
 byte lowByte, highByte, type, gyro_address, error, clockspeed_ok;
-byte channel_1_assign, channel_2_assign, channel_3_assign, channel_4_assign;
+byte channel_1_assign, channel_2_assign, channel_3_assign, channel_4_assign, channel_5_assign;
 byte roll_axis, pitch_axis, yaw_axis;
 byte receiver_check_byte, gyro_check_byte;
-volatile int receiver_input_channel_1, receiver_input_channel_2, receiver_input_channel_3, receiver_input_channel_4;
+volatile int receiver_input_channel_1, receiver_input_channel_2, receiver_input_channel_3, , receiver_input_channel_5;
 int center_channel_1, center_channel_2, center_channel_3, center_channel_4;
 int high_channel_1, high_channel_2, high_channel_3, high_channel_4;
 int low_channel_1, low_channel_2, low_channel_3, low_channel_4;
 int address, cal_int;
-unsigned long timer, timer_1, timer_2, timer_3, timer_4, current_time;
+unsigned long timer, timer_1, timer_2, timer_3, timer_4, timer_5, current_time;
 float gyro_pitch, gyro_roll, gyro_yaw;
 float gyro_roll_cal, gyro_pitch_cal, gyro_yaw_cal;
 
@@ -38,18 +38,17 @@ float gyro_roll_cal, gyro_pitch_cal, gyro_yaw_cal;
 void setup(){
   pinMode(12, OUTPUT);
   //Arduino (Atmega) pins default to inputs, so they don't need to be explicitly declared as inputs
-  //PCICR |= (1 << PCIE0);    // set PCIE0 to enable PCMSK0 scan
-  //PCMSK0 |= (1 << PCINT0);  // set PCINT0 (digital input 8) to trigger an interrupt on state change
-  //PCMSK0 |= (1 << PCINT1);  // set PCINT1 (digital input 9)to trigger an interrupt on state change
-  //PCMSK0 |= (1 << PCINT2);  // set PCINT2 (digital input 10)to trigger an interrupt on state change
-  //PCMSK0 |= (1 << PCINT3);  // set PCINT3 (digital input 11)to trigger an interrupt on state change
-  PCICR |= (1 << PCIE0);                                                                // set PCIE0 to enable PCMSK0 scan for port 8
-  PCICR |= (1 << PCIE2);
+  PCICR |= (1 << PCIE0);                                                                // Enable pin change interrupt on enabled pins PCINT[7:0] - pins 8-13
+  PCICR |= (1 << PCIE2);                                                                // Enable pin change interrupt on enabled pins PCINT[23:16] - pins 0-7
 
   PCMSK0 |= (1 << PCINT0);                                                               // set PCINT0 (digital input 8) to trigger an interrupt on state change.
-  PCMSK2 |= (1 << PCINT23);                                                              // set PCINT23 (digital input 7) to trigger an interrupt on state change.
+  PCMSK0 |= (1 << PCINT5);                                                               // set PCINT5 - PB5 (digital input 13) to trigger an interrupt on state change.
+
+  PCMSK2 |= (1 << PCINT18);                                                              // set PCINT18 (digital input 4) to trigger an interrupt on state change.
   PCMSK2 |= (1 << PCINT20);                                                              // set PCINT20 (digital input 4) to trigger an interrupt on state change.
-  PCMSK2 |= (1 << PCINT18);
+  PCMSK2 |= (1 << PCINT23);                                                              // set PCINT23 (digital input 7) to trigger an interrupt on state change.
+
+  
   Wire.begin();             //Start the I2C as master
   Serial.begin(57600);      //Start the serial connetion @ 57600bps
   delay(250);               //Give the gyro time to start 
@@ -751,6 +750,17 @@ ISR(PCINT0_vect){
   else if(last_channel_4 == 1){                                //Input 8 is not high and changed from 1 to 0
     last_channel_4 = 0;                                        //Remember current input state
     receiver_input_channel_4 = current_time - timer_4;         //Channel 4 is current_time - timer_4
+  }
+  //Channel 5=========================================
+  if(PINB & B00100000 ){                                       //Is input 13 high?
+    if(last_channel_4 == 0){                                   //Input 13 changed from 0 to 1
+      last_channel_5 = 1;                                      //Remember current input state
+      timer_5 = current_time;                                  //Set timer_5 to current_time
+    }
+  }
+  else if(last_channel_5 == 1){                                //Input 13 is not high and changed from 1 to 0
+    last_channel_5 = 0;                                        //Remember current input state
+    receiver_input_channel_5 = current_time - timer_4;         //Channel 5 is current_time - timer_5
   }
 }
 

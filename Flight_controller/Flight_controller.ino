@@ -110,7 +110,7 @@ void setup(){
   //If setup is completed without MPU-6050 stop the flight controller program  
   if(eeprom_data[31] == 2 || eeprom_data[31] == 3)delay(10);
 
-  set_gyro_registers(); //Rename to initialise_imu                                                    //Set the specific gyro registers.
+  initialise_imu();                                                         //Set the specific gyro registers.
 
   for (cal_int = 0; cal_int < 1250 ; cal_int ++){                           //Wait 5 seconds before continuing.
     PORTD |= B01101000;                                                     //Set digital port 3, 5 and 6  high
@@ -124,7 +124,7 @@ void setup(){
   //Let's take multiple gyro data samples so we can determine the average gyro offset (calibration).
   for (cal_int = 0; cal_int < 2000 ; cal_int ++){                           //Take 2000 readings for calibration.
     if(cal_int % 15 == 0)digitalWrite(12, !digitalRead(12));                //Change the led status to indicate calibration.
-    gyro_signalen();                                                        //Read the gyro output.
+    read_imu();                                                             //Read the gyro output.
     gyro_axis_cal[1] += gyro_axis[1];                                       //Ad roll value to gyro_roll_cal.
     gyro_axis_cal[2] += gyro_axis[2];                                       //Ad pitch value to gyro_pitch_cal.
     gyro_axis_cal[3] += gyro_axis[3];                                       //Ad yaw value to gyro_yaw_cal.
@@ -394,7 +394,7 @@ void loop(){
   
   //There is always 1000us of spare time. So let's do something usefull that is very time consuming.
   //Get the current gyro and receiver data and scale it to degrees per second for the pid calculations.
-  gyro_signalen();
+  read_imu();
 
   //while(PORTD >= 16){                                                       //Stay in this loop until output 4,5,6 and 7 are low.
   //  esc_loop_timer = micros();                                              //Read the current time.
@@ -478,7 +478,7 @@ ISR(PCINT0_vect){
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Subroutine for reading the gyro
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void gyro_signalen(){ //TODO: REname to read_imu
+void read_imu(){
   //Read the MPU-6050
   if(eeprom_data[31] == 1){
     Wire.beginTransmission(gyro_address);                                   //Start communication with the gyro.
@@ -587,7 +587,7 @@ int convert_receiver_channel(byte function){
     if(reverse == 1)return 1500 + difference;                                  //If the channel is reversed
     else return 1500 - difference;                                             //If the channel is not reversed
   }
-  else if(actual > center){                                                                        //The actual receiver value is higher than the center value
+  else if(actual > center){                                                    //The actual receiver value is higher than the center value
     if(actual > high)actual = high;                                            //Limit the lowest value to the value that was detected during setup
     difference = ((long)(actual - center) * (long)500) / (high - center);      //Calculate and scale the actual value to a 1000 - 2000us value
     if(reverse == 1)return 1500 - difference;                                  //If the channel is reversed
@@ -596,7 +596,7 @@ int convert_receiver_channel(byte function){
   else return 1500;
 }
 
-void set_gyro_registers(){
+void initialise_imu(){
   //Setup the MPU-6050
   if(eeprom_data[31] == 1){
     Wire.beginTransmission(gyro_address);                                      //Start communication with the address found during search.
@@ -633,22 +633,6 @@ void set_gyro_registers(){
   }  
 }
 
-void print_telemetry(){
-  if(start == 2){
-    //noInterrupts();
-    //Serial.print(F("<"));
-    //Serial.print(millis() - time_elapsed);
-    //Serial.print(F(";"));  
-    Serial.println(gyro_roll,0); 
-    //Serial.print(F(";")); 
-    //Serial.print(gyro_pitch,0); 
-    //Serial.print(F(";")); 
-    //Serial.print(gyro_yaw,0);
-    //Serial.println(F(">"));
-    //interrupts();
-  }
-}
-
 void print_telemetry_default(){
   if(start == 2){
     Serial.print("<");
@@ -664,12 +648,6 @@ void print_telemetry_default(){
   }
 }
 
-void print_string(){
-  if(start == 2){
-    Serial.println(F("Now we try printting a very very long string"));
-  }
-}
-
 void read_telemetry(){
   val = Serial.read();
     if (-1 != val) {
@@ -680,5 +658,3 @@ void read_telemetry(){
       }
     }
 }
-
-
