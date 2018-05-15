@@ -81,11 +81,18 @@ float angle_roll_acc, angle_pitch_acc, angle_pitch, angle_roll;
 boolean gyro_angles_set, esc_on;
 int val;
 
+//Variables for Serial communication
+char inData[6];
+int index = 0;
+String inStr = "";
+bool correct_data;
+int altitude = -1;
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Setup routine
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void setup(){
-  //Serial.begin(57600);
+  Serial.begin(57600);
   //Copy the EEPROM data for fast access data.
   for(start = 0; start <= 35; start++)eeprom_data[start] = EEPROM.read(start);
   start = 0;                                                                //Set start back to zero.
@@ -204,45 +211,100 @@ void loop(){
   gyro_yaw_input = (gyro_yaw_input * 0.7) + ((gyro_yaw / 65.5) * 0.3);      //Gyro pid input is deg/sec.
 
 
-  ////////////////////////////////////////////////////////////////////////////////////////////////////
-  //This is the added IMU code from the videos:
-  //https://youtu.be/4BoIE8YQwM8
-  //https://youtu.be/j-kE0AMEWy4
-  ////////////////////////////////////////////////////////////////////////////////////////////////////
-  
-  //Gyro angle calculations
-  //0.0000611 = 1 / (250Hz / 65.5)
-  angle_pitch += gyro_pitch * 0.0000611;                                    //Calculate the traveled pitch angle and add this to the angle_pitch variable.
-  angle_roll += gyro_roll * 0.0000611;                                      //Calculate the traveled roll angle and add this to the angle_roll variable.
 
-  //0.000001066 = 0.0000611 * (3.142(PI) / 180degr) The Arduino sin function is in radians
-  angle_pitch -= angle_roll * sin(gyro_yaw * 0.000001066);                  //If the IMU has yawed transfer the roll angle to the pitch angel.
-  angle_roll += angle_pitch * sin(gyro_yaw * 0.000001066);                  //If the IMU has yawed transfer the pitch angle to the roll angel.
-
-  //Accelerometer angle calculations
-  acc_total_vector = sqrt((acc_x*acc_x)+(acc_y*acc_y)+(acc_z*acc_z));       //Calculate the total accelerometer vector.
-  
-  if(abs(acc_y) < acc_total_vector){                                        //Prevent the asin function to produce a NaN
-    angle_pitch_acc = asin((float)acc_y/acc_total_vector)* 57.296;          //Calculate the pitch angle.
-  }
-  if(abs(acc_x) < acc_total_vector){                                        //Prevent the asin function to produce a NaN
-    angle_roll_acc = asin((float)acc_x/acc_total_vector)* -57.296;          //Calculate the roll angle.
-  }
-  
-  //Place the MPU-6050 spirit level and note the values in the following two lines for calibration.
-  angle_pitch_acc -= 0.0;                                                   //Accelerometer calibration value for pitch.
-  angle_roll_acc -= 0.0;                                                    //Accelerometer calibration value for roll.
-  
-  angle_pitch = angle_pitch * 0.9996 + angle_pitch_acc * 0.0004;            //Correct the drift of the gyro pitch angle with the accelerometer pitch angle.
-  angle_roll = angle_roll * 0.9996 + angle_roll_acc * 0.0004;               //Correct the drift of the gyro roll angle with the accelerometer roll angle.
-
-  pitch_level_adjust = angle_pitch * 15;                                    //Calculate the pitch angle correction
-  roll_level_adjust = angle_roll * 15;                                      //Calculate the roll angle correction
 
   if (receiver_input_channel_5 > 1500)auto_level=true;
   else auto_level=false;
 
-  if(!auto_level){                                                          //If the quadcopter is not in auto-level mode
+  if(auto_level)    //If the quadcopter is in auto-level mode
+  {
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+    //This is the added IMU code from the videos:
+    //https://youtu.be/4BoIE8YQwM8
+    //https://youtu.be/j-kE0AMEWy4
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+    
+    //Gyro angle calculations
+    //0.0000611 = 1 / (250Hz / 65.5)
+    angle_pitch += gyro_pitch * 0.0000611;                                    //Calculate the traveled pitch angle and add this to the angle_pitch variable.
+    angle_roll += gyro_roll * 0.0000611;                                      //Calculate the traveled roll angle and add this to the angle_roll variable.
+
+    //0.000001066 = 0.0000611 * (3.142(PI) / 180degr) The Arduino sin function is in radians
+    angle_pitch -= angle_roll * sin(gyro_yaw * 0.000001066);                  //If the IMU has yawed transfer the roll angle to the pitch angel.
+    angle_roll += angle_pitch * sin(gyro_yaw * 0.000001066);                  //If the IMU has yawed transfer the pitch angle to the roll angel.
+
+    //Accelerometer angle calculations
+    acc_total_vector = sqrt((acc_x*acc_x)+(acc_y*acc_y)+(acc_z*acc_z));       //Calculate the total accelerometer vector.
+    
+    if(abs(acc_y) < acc_total_vector){                                        //Prevent the asin function to produce a NaN
+      angle_pitch_acc = asin((float)acc_y/acc_total_vector)* 57.296;          //Calculate the pitch angle.
+    }
+    if(abs(acc_x) < acc_total_vector){                                        //Prevent the asin function to produce a NaN
+      angle_roll_acc = asin((float)acc_x/acc_total_vector)* -57.296;          //Calculate the roll angle.
+    }
+    
+    //Place the MPU-6050 spirit level and note the values in the following two lines for calibration.
+    angle_pitch_acc -= 0.0;                                                   //Accelerometer calibration value for pitch.
+    angle_roll_acc -= 0.0;                                                    //Accelerometer calibration value for roll.
+    
+    angle_pitch = angle_pitch * 0.9996 + angle_pitch_acc * 0.0004;            //Correct the drift of the gyro pitch angle with the accelerometer pitch angle.
+    angle_roll = angle_roll * 0.9996 + angle_roll_acc * 0.0004;               //Correct the drift of the gyro roll angle with the accelerometer roll angle.
+
+    pitch_level_adjust = angle_pitch * 15;                                    //Calculate the pitch angle correction
+    roll_level_adjust = angle_roll * 15;                                      //Calculate the roll angle correction
+
+    //Initiating Serial communication, ideally reading one char per loop(once every 4ms)
+    ///////////////////////
+    if(Serial.available() != 0)
+    {
+      inData[index] = Serial.read();
+      //Serial.println(inData[index]);
+      //For debug purposes
+      //if(inData[index]) digitalWrite(12, HIGH);
+      //Serial.println(inData[index]);
+
+      if(index >= 5) index = 0;
+      else index++;
+
+      if ((inData[0]=='<') && (inData[5] == '>'))
+      {
+        correct_data = false;     
+        for(int i = 1; i < 5; i++)
+        {
+          if (isDigit(inData[i])) 
+          {
+            correct_data = true;
+            inStr += char(inData[i]);
+          }
+          else correct_data = false;
+        }
+        
+        if (correct_data) 
+        {
+          altitude = inStr.toInt();
+          //Serial.print("ALT");
+          //Serial.println(altitude);
+          //digitalWrite(12, HIGH);
+        }
+        else altitude = -1;
+        //digitalWrite(12, LOW);
+        
+        //Serial.println(altitude);
+        
+        //Cleanup
+        inStr = "";
+        for(int i = 0; i < 6; i++)
+        {
+          inData[i] = '#';
+        }
+
+      }
+    }
+  ///////////////////////
+  }
+
+  if(!auto_level)
+  {                                                          //If the quadcopter is not in auto-level mode
     pitch_level_adjust = 0;                                                 //Set the pitch angle correction to zero.
     roll_level_adjust = 0;                                                  //Set the roll angle correcion to zero.
   }
@@ -327,12 +389,24 @@ void loop(){
     //esc_6 = throttle + pid_output_pitch - pid_output_roll - pid_output_yaw; //Calculate the pulse for esc 6 (rear-left - CW)
 
     // Calculate the pulse for each ESC
-    esc_1 = throttle - pid_output_pitch + pid_output_roll - pid_output_yaw;   //front-right - CCW
-    esc_2 = throttle                    + pid_output_roll + pid_output_yaw;   //right - CW
-    esc_3 = throttle + pid_output_pitch + pid_output_roll - pid_output_yaw;   //rear-right CCW
-    esc_4 = throttle + pid_output_pitch - pid_output_roll + pid_output_yaw;   //rear-left CW
-    esc_5 = throttle                    - pid_output_roll - pid_output_yaw;   //left CCW
-    esc_6 = throttle - pid_output_pitch - pid_output_roll + pid_output_yaw;   //front-left CW
+    //TODO - Change back 
+    if (altitude == -1)
+    {
+      esc_1 = throttle - pid_output_pitch + pid_output_roll - pid_output_yaw;   //front-right - CCW
+      esc_2 = throttle                    + pid_output_roll + pid_output_yaw;   //right - CW
+      esc_3 = throttle + pid_output_pitch + pid_output_roll - pid_output_yaw;   //rear-right CCW
+      esc_4 = throttle + pid_output_pitch - pid_output_roll + pid_output_yaw;   //rear-left CW
+      esc_5 = throttle                    - pid_output_roll - pid_output_yaw;   //left CCW
+      esc_6 = throttle - pid_output_pitch - pid_output_roll + pid_output_yaw;   //front-left CW
+    }
+    else{
+      esc_1 = 1600;
+      esc_2 = 1000;
+      esc_3 = 1000;
+      esc_4 = 1000;
+      esc_5 = 1000;
+      esc_6 = 1000;
+    }
 
 
 
@@ -439,7 +513,7 @@ ISR(PCINT2_vect){
   }
   else if(last_channel_1 == 1){                                //Input 2 is not high and changed from 1 to 0
     last_channel_1 = 0;                                        //Remember current input state
-    receiver_input[1] = current_time - timer_4;                 //Channel 4 is current_time - timer_4
+    receiver_input[1] = current_time - timer_1;                 //Channel 4 is current_time - timer_4
   }
   //Channel 2=========================================
   if(PIND & B00010000 ){                                       //Is input 4 high?
@@ -450,7 +524,7 @@ ISR(PCINT2_vect){
   }
   else if(last_channel_2 == 1){                                //Input 4 is not high and changed from 1 to 0
     last_channel_2 = 0;                                        //Remember current input state
-    receiver_input[2] = current_time - timer_4;                 //Channel 4 is current_time - timer_4
+    receiver_input[2] = current_time - timer_2;                 //Channel 4 is current_time - timer_4
   }
   //Channel 3=========================================
   if(PIND & B10000000 ){                                       //Is input 7 high?
@@ -461,7 +535,7 @@ ISR(PCINT2_vect){
   }
   else if(last_channel_3 == 1){                                //Input 7 is not high and changed from 1 to 0
     last_channel_3 = 0;                                        //Remember current input state
-    receiver_input[3] = current_time - timer_4;                 //Channel 4 is current_time - timer_4
+    receiver_input[3] = current_time - timer_3;                 //Channel 4 is current_time - timer_4
 
   }
 }
