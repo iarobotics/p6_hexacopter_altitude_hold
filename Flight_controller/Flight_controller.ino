@@ -38,7 +38,7 @@
 //
 //boolean auto_level = true;                 //Auto level on (true) or off (false)
 float pid_p_gain_roll = 2.0;               //Gain setting for the roll P-controller //2.0
-float pid_i_gain_roll = 0.00;              //Gain setting for the roll I-controller
+float pid_i_gain_roll = 0.0;              //Gain setting for the roll I-controller
 float pid_d_gain_roll = 30.0;              //Gain setting for the roll D-controller
 int pid_max_roll = 400;                    //Maximum output of the PID-controller (+/-)
 float pid_p_gain_pitch = pid_p_gain_roll;  //Gain setting for the pitch P-controller.
@@ -46,9 +46,15 @@ float pid_i_gain_pitch = pid_i_gain_roll;  //Gain setting for the pitch I-contro
 float pid_d_gain_pitch = pid_d_gain_roll;  //Gain setting for the pitch D-controller.
 int pid_max_pitch = pid_max_roll;          //Maximum output of the PID-controller (+/-)
 float pid_p_gain_yaw = 4.0;                //Gain setting for the pitch P-controller. //4.0
-float pid_i_gain_yaw = 0.0;               //Gain setting for the pitch I-controller. //0.02
+float pid_i_gain_yaw = 0.02;               //Gain setting for the pitch I-controller. //0.02
 float pid_d_gain_yaw = 0.0;                //Gain setting for the pitch D-controller.
+
+float pid_p_gain_alt = 1;                //Gain setting for the altitude P-controller. //4.0
+float pid_i_gain_alt = 0.0;               //Gain setting for the altitude I-controller. //0.02
+float pid_d_gain_alt = 0.0;                //Gain setting for the altitude D-controller.
+
 int pid_max_yaw = 400;                     //Maximum output of the PID-controller (+/-)
+int pid_max_alt = 200;
 boolean auto_level = false;                 //Auto level on (true) or off (false)
 unsigned long time_elapsed;
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -58,7 +64,7 @@ byte last_channel_1, last_channel_2, last_channel_3, last_channel_4, last_channe
 byte eeprom_data[36];
 byte highByte, lowByte;
 volatile int receiver_input_channel_1, receiver_input_channel_2, receiver_input_channel_3, receiver_input_channel_4, receiver_input_channel_5;
-int counter_channel_1, counter_channel_2, counter_channel_3, counter_channel_4, loop_counter;
+int counter_channel_1, counter_channel_2, counter_channel_3, counter_channel_4;
 int esc_1, esc_2, esc_3, esc_4, esc_5, esc_6;
 int throttle, battery_voltage;
 int cal_int, start, gyro_address;
@@ -77,6 +83,7 @@ float pid_error_temp;
 float pid_i_mem_roll, pid_roll_setpoint, gyro_roll_input, pid_output_roll, pid_last_roll_d_error;
 float pid_i_mem_pitch, pid_pitch_setpoint, gyro_pitch_input, pid_output_pitch, pid_last_pitch_d_error;
 float pid_i_mem_yaw, pid_yaw_setpoint, gyro_yaw_input, pid_output_yaw, pid_last_yaw_d_error;
+float pid_i_mem_alt, pid_alt_setpoint, altitude_input, pid_output_alt, pid_last_alt_d_error;
 float angle_roll_acc, angle_pitch_acc, angle_pitch, angle_roll;
 boolean gyro_angles_set, esc_on;
 int val;
@@ -87,6 +94,12 @@ int index = 0;
 String inStr = "";
 bool correct_data;
 int altitude = -1;
+bool first_reading = true;
+
+//Serial read_altitude_v2
+//byte data[6];
+int loop_counter = 0;
+//bool new_function_request;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Setup routine
@@ -193,6 +206,7 @@ void setup(){
   //When everything is done, turn off the led.
   digitalWrite(12,LOW);                                                     //Turn off the warning led.
   //PORTB &= B11101111;
+  pid_alt_setpoint = 0;
   
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -200,111 +214,60 @@ void setup(){
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void loop(){
 
-  //print_telemetry_default();
-  //print_telemetry();
-  //print_string();
-  //read_telemetry();
+  if(start == 2)print_telemetry();
 
   //65.5 = 1 deg/sec (check the datasheet of the MPU-6050 for more information).
   gyro_roll_input = (gyro_roll_input * 0.7) + ((gyro_roll / 65.5) * 0.3);   //Gyro pid input is deg/sec.
   gyro_pitch_input = (gyro_pitch_input * 0.7) + ((gyro_pitch / 65.5) * 0.3);//Gyro pid input is deg/sec.
   gyro_yaw_input = (gyro_yaw_input * 0.7) + ((gyro_yaw / 65.5) * 0.3);      //Gyro pid input is deg/sec.
 
-
-
-
   if (receiver_input_channel_5 > 1500)auto_level=true;
   else auto_level=false;
 
-  if(auto_level)    //If the quadcopter is in auto-level mode
-  {
     ////////////////////////////////////////////////////////////////////////////////////////////////////
     //This is the added IMU code from the videos:
     //https://youtu.be/4BoIE8YQwM8
     //https://youtu.be/j-kE0AMEWy4
     ////////////////////////////////////////////////////////////////////////////////////////////////////
     
-    //Gyro angle calculations
-    //0.0000611 = 1 / (250Hz / 65.5)
-    angle_pitch += gyro_pitch * 0.0000611;                                    //Calculate the traveled pitch angle and add this to the angle_pitch variable.
-    angle_roll += gyro_roll * 0.0000611;                                      //Calculate the traveled roll angle and add this to the angle_roll variable.
+  //Gyro angle calculations
+  //0.0000611 = 1 / (250Hz / 65.5)
+  angle_pitch += gyro_pitch * 0.0000611;                                    //Calculate the traveled pitch angle and add this to the angle_pitch variable.
+  angle_roll += gyro_roll * 0.0000611;                                      //Calculate the traveled roll angle and add this to the angle_roll variable.
 
-    //0.000001066 = 0.0000611 * (3.142(PI) / 180degr) The Arduino sin function is in radians
-    angle_pitch -= angle_roll * sin(gyro_yaw * 0.000001066);                  //If the IMU has yawed transfer the roll angle to the pitch angel.
-    angle_roll += angle_pitch * sin(gyro_yaw * 0.000001066);                  //If the IMU has yawed transfer the pitch angle to the roll angel.
+  //0.000001066 = 0.0000611 * (3.142(PI) / 180degr) The Arduino sin function is in radians
+  angle_pitch -= angle_roll * sin(gyro_yaw * 0.000001066);                  //If the IMU has yawed transfer the roll angle to the pitch angel.
+  angle_roll += angle_pitch * sin(gyro_yaw * 0.000001066);                  //If the IMU has yawed transfer the pitch angle to the roll angel.
 
-    //Accelerometer angle calculations
-    acc_total_vector = sqrt((acc_x*acc_x)+(acc_y*acc_y)+(acc_z*acc_z));       //Calculate the total accelerometer vector.
-    
-    if(abs(acc_y) < acc_total_vector){                                        //Prevent the asin function to produce a NaN
-      angle_pitch_acc = asin((float)acc_y/acc_total_vector)* 57.296;          //Calculate the pitch angle.
-    }
-    if(abs(acc_x) < acc_total_vector){                                        //Prevent the asin function to produce a NaN
-      angle_roll_acc = asin((float)acc_x/acc_total_vector)* -57.296;          //Calculate the roll angle.
-    }
-    
-    //Place the MPU-6050 spirit level and note the values in the following two lines for calibration.
-    angle_pitch_acc -= 0.0;                                                   //Accelerometer calibration value for pitch.
-    angle_roll_acc -= 0.0;                                                    //Accelerometer calibration value for roll.
-    
-    angle_pitch = angle_pitch * 0.9996 + angle_pitch_acc * 0.0004;            //Correct the drift of the gyro pitch angle with the accelerometer pitch angle.
-    angle_roll = angle_roll * 0.9996 + angle_roll_acc * 0.0004;               //Correct the drift of the gyro roll angle with the accelerometer roll angle.
+  //Accelerometer angle calculations
+  acc_total_vector = sqrt((acc_x*acc_x)+(acc_y*acc_y)+(acc_z*acc_z));       //Calculate the total accelerometer vector.
+  
+  if(abs(acc_y) < acc_total_vector){                                        //Prevent the asin function to produce a NaN
+    angle_pitch_acc = asin((float)acc_y/acc_total_vector)* 57.296;          //Calculate the pitch angle.
+  }
+  if(abs(acc_x) < acc_total_vector){                                        //Prevent the asin function to produce a NaN
+    angle_roll_acc = asin((float)acc_x/acc_total_vector)* -57.296;          //Calculate the roll angle.
+  }
+  
+  //Place the MPU-6050 spirit level and note the values in the following two lines for calibration.
+  angle_pitch_acc -= 0.0;                                                   //Accelerometer calibration value for pitch.
+  angle_roll_acc -= 0.0;                                                    //Accelerometer calibration value for roll.
+  
+  angle_pitch = angle_pitch * 0.9996 + angle_pitch_acc * 0.0004;            //Correct the drift of the gyro pitch angle with the accelerometer pitch angle.
+  angle_roll = angle_roll * 0.9996 + angle_roll_acc * 0.0004;               //Correct the drift of the gyro roll angle with the accelerometer roll angle.
 
+  if(auto_level)    //If the quadcopter is in auto-level mode
+  {
     pitch_level_adjust = angle_pitch * 15;                                    //Calculate the pitch angle correction
     roll_level_adjust = angle_roll * 15;                                      //Calculate the roll angle correction
 
     //Initiating Serial communication, ideally reading one char per loop(once every 4ms)
-    ///////////////////////
-    if(Serial.available() != 0)
-    {
-      inData[index] = Serial.read();
-      //Serial.println(inData[index]);
-      //For debug purposes
-      //if(inData[index]) digitalWrite(12, HIGH);
-      //Serial.println(inData[index]);
-
-      if(index >= 5) index = 0;
-      else index++;
-
-      if ((inData[0]=='<') && (inData[5] == '>'))
-      {
-        correct_data = false;     
-        for(int i = 1; i < 5; i++)
-        {
-          if (isDigit(inData[i])) 
-          {
-            correct_data = true;
-            inStr += char(inData[i]);
-          }
-          else correct_data = false;
-        }
-        
-        if (correct_data) 
-        {
-          altitude = inStr.toInt();
-          //Serial.print("ALT");
-          //Serial.println(altitude);
-          //digitalWrite(12, HIGH);
-        }
-        else altitude = -1;
-        //digitalWrite(12, LOW);
-        
-        //Serial.println(altitude);
-        
-        //Cleanup
-        inStr = "";
-        for(int i = 0; i < 6; i++)
-        {
-          inData[i] = '#';
-        }
-
-      }
-    }
-  ///////////////////////
+    read_altitude();
   }
-
-  if(!auto_level)
-  {                                                          //If the quadcopter is not in auto-level mode
+  else
+  {  
+    first_reading = true;
+    altitude = -1;                                                        //If the quadcopter is not in auto-level mode
     pitch_level_adjust = 0;                                                 //Set the pitch angle correction to zero.
     roll_level_adjust = 0;                                                  //Set the roll angle correcion to zero.
   }
@@ -376,40 +339,14 @@ void loop(){
 
   if (start == 2){                                                          //The motors are started.
     if (throttle > 1800) throttle = 1800;                                   //We need some room to keep full control at full throttle.
-    //esc_1 = throttle - pid_output_pitch + pid_output_roll - pid_output_yaw; //Calculate the pulse for esc 1 (front-right - CCW)
-    //esc_2 = throttle + pid_output_pitch + pid_output_roll + pid_output_yaw; //Calculate the pulse for esc 2 (rear-right - CW)
-    //esc_3 = throttle + pid_output_pitch - pid_output_roll - pid_output_yaw; //Calculate the pulse for esc 3 (rear-left - CCW)
-    //esc_4 = throttle - pid_output_pitch - pid_output_roll + pid_output_yaw; //Calculate the pulse for esc 4 (front-left - CW)
-    
-    //esc_1 = throttle + pid_output_roll;
-    //esc_2 = throttle - pid_output_roll;
-    //esc_3 = throttle - pid_output_pitch - pid_output_roll + pid_output_yaw; //Calculate the pulse for esc 4 (front-left - CW)
-    //esc_4 = throttle + pid_output_pitch + pid_output_roll + pid_output_yaw; //Calculate the pulse for esc 4 (rear-right - CCW)
-    //esc_5 = throttle - pid_output_pitch + pid_output_roll - pid_output_yaw; //Calculate the pulse for esc 5 (front-right - CCW)
-    //esc_6 = throttle + pid_output_pitch - pid_output_roll - pid_output_yaw; //Calculate the pulse for esc 6 (rear-left - CW)
 
     // Calculate the pulse for each ESC
-    //TODO - Change back 
-    if (altitude == -1)
-    {
-      esc_1 = throttle - pid_output_pitch + pid_output_roll - pid_output_yaw;   //front-right - CCW
-      esc_2 = throttle                    + pid_output_roll + pid_output_yaw;   //right - CW
-      esc_3 = throttle + pid_output_pitch + pid_output_roll - pid_output_yaw;   //rear-right CCW
-      esc_4 = throttle + pid_output_pitch - pid_output_roll + pid_output_yaw;   //rear-left CW
-      esc_5 = throttle                    - pid_output_roll - pid_output_yaw;   //left CCW
-      esc_6 = throttle - pid_output_pitch - pid_output_roll + pid_output_yaw;   //front-left CW
-    }
-    else{
-      esc_1 = 1600;
-      esc_2 = 1000;
-      esc_3 = 1000;
-      esc_4 = 1000;
-      esc_5 = 1000;
-      esc_6 = 1000;
-    }
-
-
-
+    esc_1 = throttle - pid_output_pitch + pid_output_roll - pid_output_yaw - pid_output_alt;   //front-right - CCW
+    esc_2 = throttle                    + pid_output_roll + pid_output_yaw - pid_output_alt;   //right - CW
+    esc_3 = throttle + pid_output_pitch + pid_output_roll - pid_output_yaw - pid_output_alt;   //rear-right CCW
+    esc_4 = throttle + pid_output_pitch - pid_output_roll + pid_output_yaw - pid_output_alt;   //rear-left CW
+    esc_5 = throttle                    - pid_output_roll - pid_output_yaw - pid_output_alt;   //left CCW
+    esc_6 = throttle - pid_output_pitch - pid_output_roll + pid_output_yaw - pid_output_alt;   //front-left CW
 
     //if (battery_voltage < 1240 && battery_voltage > 800){                   //Is the battery connected?
     //  esc_1 += esc_1 * ((1240 - battery_voltage)/(float)3500);              //Compensate the esc-1 pulse for voltage drop.
@@ -656,6 +593,24 @@ void calculate_pid(){
   else if(pid_output_yaw < pid_max_yaw * -1)pid_output_yaw = pid_max_yaw * -1;
 
   pid_last_yaw_d_error = pid_error_temp;
+
+  pid_output_alt = 0;
+
+  if ((auto_level) && (altitude != -1))
+  {
+    //Altitude Calculations
+    pid_error_temp = altitude - pid_alt_setpoint;
+    pid_i_mem_alt += pid_i_gain_alt * pid_error_temp;
+    if(pid_i_mem_alt > pid_max_alt)pid_i_mem_alt = pid_max_alt;
+    else if(pid_i_mem_alt < pid_max_alt * -1)pid_i_mem_alt = pid_max_alt * -1;
+
+    pid_output_alt = pid_p_gain_alt * pid_error_temp + pid_i_mem_alt + pid_d_gain_alt * (pid_error_temp - pid_last_alt_d_error);
+    if(pid_output_alt > pid_max_alt)pid_output_alt = pid_max_alt;
+    else if(pid_output_alt < pid_max_alt * -1)pid_output_alt = pid_max_alt * -1;
+
+    pid_last_alt_d_error = pid_error_temp;
+ 
+  }
 }
 
 //This part converts the actual receiver signals to a standardized 1000 – 1500 – 2000 microsecond value.
@@ -733,28 +688,118 @@ void initialise_imu(){
   }  
 }
 
-void print_telemetry_default(){
-  if(start == 2){
-    Serial.print("<");
-    Serial.print(millis() - time_elapsed);
-    //Serial.print(millis());
-    Serial.print(";");  
-    Serial.print(gyro_roll,0); 
-    Serial.print(";"); 
-    Serial.print(gyro_pitch,0); 
-    Serial.print(";");
-    Serial.print(gyro_yaw,0);
-    Serial.println(">");
+void read_altitude_v2()
+{
+  first_reading = first_reading;
+
+  if(Serial.available() > 0)
+  {
+    inData[index] = Serial.read();
+
+    if(index >= 5) index = 0;
+    else index++;
+  }
+
+  if ((inData[0]=='<') && (inData[5] == '>'))
+  {
+    correct_data = false;     
+    for(int i = 1; i < 5; i++)
+    {
+      if (isDigit(inData[i])) 
+      {
+        correct_data = true;
+        inStr += char(inData[i]);
+      }
+      else correct_data = false;
+    }
+    
+    if (correct_data) 
+    {
+      altitude = inStr.toInt();
+      if (first_reading == true)
+      {
+        pid_alt_setpoint = altitude;
+        first_reading = false;
+      }
+    }
+    //else altitude = -1;
+    
+    //Cleanup
+    inStr = "";
+    for(int i = 0; i < 6; i++)
+    {
+      inData[i] = '#';
+    }
   }
 }
 
-void read_telemetry(){
-  val = Serial.read();
-    if (-1 != val) {
-      if ('Q' == val || 'q' == val) {
-        Serial.println(F("Hi"));
-      }else if ('W' == val || 'w' == val) {
-        Serial.println(F("Bye"));
+void read_altitude()
+{
+
+  if(Serial.available() >= 6)
+  {
+    for(int i =0; i<6; i++)
+    {
+      inData[i] = Serial.read();
+    }
+    while(Serial.available() > 0) Serial.read();
+  }
+
+  if ((inData[0]=='<') && (inData[5] == '>'))
+  {
+    correct_data = false;     
+    for(int i = 1; i < 5; i++)
+    {
+      if (isDigit(inData[i])) 
+      {
+        correct_data = true;
+        inStr += char(inData[i]);
+      }
+      else correct_data = false;
+    }
+
+    if (correct_data) 
+    {
+      altitude = inStr.toInt();
+      //Serial.println(altitude);
+      if (first_reading == true)
+      {
+        pid_alt_setpoint = altitude;
+        first_reading = false;
       }
     }
+
+    //Cleanup
+    inStr = "";
+    for(int i = 0; i < 6; i++)
+    {
+      inData[i] = '#';
+    }
+  }
+}
+
+void print_telemetry()
+{
+  //We can't print all the data at once. This takes to long and the angular readings will be off.
+  if(loop_counter == 0)Serial.print("<");
+  if(loop_counter == 1)Serial.print(auto_level);
+  if(loop_counter == 2)Serial.print(",");
+  if(loop_counter == 3)Serial.print(receiver_input_channel_1); //Roll
+  if(loop_counter == 4)Serial.print(",");
+  if(loop_counter == 5)Serial.print(angle_roll ,0);
+  if(loop_counter == 6)Serial.print(",");
+  if(loop_counter == 7)Serial.print(receiver_input_channel_2); //Pitch
+  if(loop_counter == 8)Serial.print(",");
+  if(loop_counter == 9)Serial.print(angle_pitch ,0);
+  if(loop_counter == 10)Serial.print(",");
+  if(loop_counter == 11)Serial.print(receiver_input_channel_4); //Yaw
+  if(loop_counter == 12)Serial.print(",");
+  if(loop_counter == 13)Serial.print(gyro_yaw / 65.5 ,0);
+  if(loop_counter == 14)Serial.print(",");
+  if(loop_counter == 15)Serial.print(receiver_input_channel_3); //Throttle
+  if(loop_counter == 16)Serial.println("<");
+
+
+  loop_counter ++;
+  if(loop_counter == 60)loop_counter = 0;
 }
