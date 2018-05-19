@@ -49,14 +49,13 @@ float pid_p_gain_yaw = 4.0;                //Gain setting for the pitch P-contro
 float pid_i_gain_yaw = 0.02;               //Gain setting for the pitch I-controller. //0.02
 float pid_d_gain_yaw = 0.0;                //Gain setting for the pitch D-controller.
 
-float pid_p_gain_alt = 1;                //Gain setting for the altitude P-controller. //4.0
-float pid_i_gain_alt = 0.0;               //Gain setting for the altitude I-controller. //0.02
-float pid_d_gain_alt = 0.0;                //Gain setting for the altitude D-controller.
+//float pid_p_gain_alt = 0.5;                //Gain setting for the altitude P-controller. //4.0
+//float pid_i_gain_alt = 0.0;               //Gain setting for the altitude I-controller. //0.02
+//float pid_d_gain_alt = 0.0;                //Gain setting for the altitude D-controller.
 
 int pid_max_yaw = 400;                     //Maximum output of the PID-controller (+/-)
-int pid_max_alt = 200;
-boolean auto_level = false;                 //Auto level on (true) or off (false)
-unsigned long time_elapsed;
+int pid_max_alt = 400;
+bool auto_level = false;                 //Auto level on (true) or off (false)
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Declaring global variables
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -83,10 +82,9 @@ float pid_error_temp;
 float pid_i_mem_roll, pid_roll_setpoint, gyro_roll_input, pid_output_roll, pid_last_roll_d_error;
 float pid_i_mem_pitch, pid_pitch_setpoint, gyro_pitch_input, pid_output_pitch, pid_last_pitch_d_error;
 float pid_i_mem_yaw, pid_yaw_setpoint, gyro_yaw_input, pid_output_yaw, pid_last_yaw_d_error;
-float pid_i_mem_alt, pid_alt_setpoint, altitude_input, pid_output_alt, pid_last_alt_d_error;
+float pid_i_mem_alt, altitude_input, pid_last_alt_d_error;
 float angle_roll_acc, angle_pitch_acc, angle_pitch, angle_roll;
-boolean gyro_angles_set, esc_on;
-int val;
+bool gyro_angles_set, esc_on;
 
 //Variables for Serial communication
 char inData[6];
@@ -95,6 +93,8 @@ String inStr = "";
 bool correct_data;
 int altitude = -1;
 bool first_reading = true;
+int pid_alt_setpoint;
+int pid_output_alt;
 
 //Serial read_altitude_v2
 //byte data[6];
@@ -121,8 +121,8 @@ void setup(){
 
 
   //Use the led on the Arduino for startup indication.
-  digitalWrite(12,HIGH);                                                    //Turn on the warning led.
-  //PORTB |= B00010000;
+  //digitalWrite(12,HIGH);                                                    //Turn on the warning led.
+  PORTB |= B00010000;
 
   //Check the EEPROM signature to make sure that the setup program is executed.
   while(eeprom_data[33] != 'J' || eeprom_data[34] != 'M' || eeprom_data[35] != 'B')delay(10);
@@ -200,12 +200,10 @@ void setup(){
   battery_voltage = 1050;
 
   loop_timer = micros();                                                    //Set the timer for the next loop.
-  time_elapsed = millis();
-  val = 0;
 
   //When everything is done, turn off the led.
-  digitalWrite(12,LOW);                                                     //Turn off the warning led.
-  //PORTB &= B11101111;
+  //digitalWrite(12,LOW);                                                     //Turn off the warning led.
+  PORTB &= B11101111;
   pid_alt_setpoint = 0;
   
 }
@@ -214,7 +212,7 @@ void setup(){
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void loop(){
 
-  if(start == 2)print_telemetry();
+  //if(start == 2)print_telemetry();
 
   //65.5 = 1 deg/sec (check the datasheet of the MPU-6050 for more information).
   gyro_roll_input = (gyro_roll_input * 0.7) + ((gyro_roll / 65.5) * 0.3);   //Gyro pid input is deg/sec.
@@ -323,6 +321,8 @@ void loop(){
     if(receiver_input_channel_4 > 1508)pid_yaw_setpoint = (receiver_input_channel_4 - 1508)/3.0;
     else if(receiver_input_channel_4 < 1492)pid_yaw_setpoint = (receiver_input_channel_4 - 1492)/3.0;
   }
+
+  pid_output_alt = 0;
   
   calculate_pid();                                                            //PID inputs are known. So we can calculate the pid output.
 
@@ -341,12 +341,12 @@ void loop(){
     if (throttle > 1800) throttle = 1800;                                   //We need some room to keep full control at full throttle.
 
     // Calculate the pulse for each ESC
-    esc_1 = throttle - pid_output_pitch + pid_output_roll - pid_output_yaw - pid_output_alt;   //front-right - CCW
-    esc_2 = throttle                    + pid_output_roll + pid_output_yaw - pid_output_alt;   //right - CW
-    esc_3 = throttle + pid_output_pitch + pid_output_roll - pid_output_yaw - pid_output_alt;   //rear-right CCW
-    esc_4 = throttle + pid_output_pitch - pid_output_roll + pid_output_yaw - pid_output_alt;   //rear-left CW
-    esc_5 = throttle                    - pid_output_roll - pid_output_yaw - pid_output_alt;   //left CCW
-    esc_6 = throttle - pid_output_pitch - pid_output_roll + pid_output_yaw - pid_output_alt;   //front-left CW
+    esc_1 = throttle - pid_output_pitch + pid_output_roll - pid_output_yaw + pid_output_alt;   //front-right - CCW
+    esc_2 = throttle                    + pid_output_roll + pid_output_yaw + pid_output_alt;   //right - CW
+    esc_3 = throttle + pid_output_pitch + pid_output_roll - pid_output_yaw + pid_output_alt;   //rear-right CCW
+    esc_4 = throttle + pid_output_pitch - pid_output_roll + pid_output_yaw + pid_output_alt;   //rear-left CW
+    esc_5 = throttle                    - pid_output_roll - pid_output_yaw + pid_output_alt;   //left CCW
+    esc_6 = throttle - pid_output_pitch - pid_output_roll + pid_output_yaw + pid_output_alt;   //front-left CW
 
     //if (battery_voltage < 1240 && battery_voltage > 800){                   //Is the battery connected?
     //  esc_1 += esc_1 * ((1240 - battery_voltage)/(float)3500);              //Compensate the esc-1 pulse for voltage drop.
@@ -392,7 +392,7 @@ void loop(){
   //the Q&A page: 
   //! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! !
     
-  if(micros() - loop_timer > 4050)digitalWrite(12, HIGH);                   //Turn on the LED if the loop time exceeds 4050us.PORTB |= B00010000;
+  if(micros() - loop_timer > 4050)PORTB |= B00010000;//digitalWrite(12, HIGH);                   //Turn on the LED if the loop time exceeds 4050us.
   
   //All the information for controlling the motor's is available.
   //The refresh rate is 250Hz. That means the esc's need there pulse every 4ms.
@@ -594,21 +594,25 @@ void calculate_pid(){
 
   pid_last_yaw_d_error = pid_error_temp;
 
-  pid_output_alt = 0;
-
   if ((auto_level) && (altitude != -1))
   {
     //Altitude Calculations
-    pid_error_temp = altitude - pid_alt_setpoint;
-    pid_i_mem_alt += pid_i_gain_alt * pid_error_temp;
-    if(pid_i_mem_alt > pid_max_alt)pid_i_mem_alt = pid_max_alt;
-    else if(pid_i_mem_alt < pid_max_alt * -1)pid_i_mem_alt = pid_max_alt * -1;
+    //pid_error_temp = altitude - pid_alt_setpoint;
+    //pid_i_mem_alt += pid_i_gain_alt * pid_error_temp;
+    //if(pid_i_mem_alt > pid_max_alt)pid_i_mem_alt = pid_max_alt;
+    //else if(pid_i_mem_alt < pid_max_alt * -1)pid_i_mem_alt = pid_max_alt * -1;
 
-    pid_output_alt = pid_p_gain_alt * pid_error_temp + pid_i_mem_alt + pid_d_gain_alt * (pid_error_temp - pid_last_alt_d_error);
+    //pid_output_alt = pid_p_gain_alt * pid_error_temp + pid_i_mem_alt + pid_d_gain_alt * (pid_error_temp - pid_last_alt_d_error);
+    //if(pid_output_alt > pid_max_alt)pid_output_alt = pid_max_alt;
+    //else if(pid_output_alt < pid_max_alt * -1)pid_output_alt = pid_max_alt * -1;
+
+    //pid_last_alt_d_error = pid_error_temp;
+    if((altitude - pid_alt_setpoint) > 50)pid_output_alt -= 1;         //Above setpoint with 10cm - thottle down
+    else if((altitude - pid_alt_setpoint) < -50) pid_output_alt += 1;  //Below setpoint with 10cm - thottle up
+
     if(pid_output_alt > pid_max_alt)pid_output_alt = pid_max_alt;
     else if(pid_output_alt < pid_max_alt * -1)pid_output_alt = pid_max_alt * -1;
 
-    pid_last_alt_d_error = pid_error_temp;
  
   }
 }
@@ -675,8 +679,8 @@ void initialise_imu(){
     Wire.requestFrom(gyro_address, 1);                                         //Request 1 bytes from the gyro
     while(Wire.available() < 1);                                               //Wait until the 6 bytes are received
     if(Wire.read() != 0x08){                                                   //Check if the value is 0x08
-      digitalWrite(12,HIGH);                                                   //Turn on the warning led
-      //PORTB |= B00010000;
+      //digitalWrite(12,HIGH);                                                   //Turn on the warning led
+      PORTB |= B00010000;
       while(1)delay(10);                                                       //Stay in this loop for ever
     }
 
@@ -690,8 +694,6 @@ void initialise_imu(){
 
 void read_altitude_v2()
 {
-  first_reading = first_reading;
-
   if(Serial.available() > 0)
   {
     inData[index] = Serial.read();
@@ -716,6 +718,7 @@ void read_altitude_v2()
     if (correct_data) 
     {
       altitude = inStr.toInt();
+      //Serial.println(altitude);
       if (first_reading == true)
       {
         pid_alt_setpoint = altitude;
@@ -735,6 +738,7 @@ void read_altitude_v2()
 
 void read_altitude()
 {
+  pid_alt_setpoint = 1500;
 
   if(Serial.available() >= 6)
   {
@@ -750,23 +754,23 @@ void read_altitude()
     correct_data = false;     
     for(int i = 1; i < 5; i++)
     {
-      if (isDigit(inData[i])) 
-      {
+      //if (isDigit(inData[i])) 
+      //{
         correct_data = true;
         inStr += char(inData[i]);
-      }
-      else correct_data = false;
+      //}
+      //else correct_data = false;
     }
-
+//
     if (correct_data) 
     {
       altitude = inStr.toInt();
-      //Serial.println(altitude);
-      if (first_reading == true)
-      {
-        pid_alt_setpoint = altitude;
-        first_reading = false;
-      }
+      Serial.println(altitude);
+      //if (first_reading == true)
+      //{
+      //  pid_alt_setpoint = altitude;
+      //  first_reading = false;
+      //}
     }
 
     //Cleanup
