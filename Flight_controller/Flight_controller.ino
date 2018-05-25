@@ -49,12 +49,12 @@ float pid_p_gain_yaw = 4.0;                //Gain setting for the pitch P-contro
 float pid_i_gain_yaw = 0.02;               //Gain setting for the pitch I-controller. //0.02
 float pid_d_gain_yaw = 0.0;                //Gain setting for the pitch D-controller.
 
-//float pid_p_gain_alt = 0.5;                //Gain setting for the altitude P-controller. //4.0
-//float pid_i_gain_alt = 0.0;               //Gain setting for the altitude I-controller. //0.02
-//float pid_d_gain_alt = 0.0;                //Gain setting for the altitude D-controller.
+float pid_p_gain_alt = 0.25;                //Gain setting for the altitude P-controller. //4.0
+float pid_i_gain_alt = 0.0;               //Gain setting for the altitude I-controller. //0.02
+float pid_d_gain_alt = 0.0;                //Gain setting for the altitude D-controller.
 
 int pid_max_yaw = 400;                     //Maximum output of the PID-controller (+/-)
-int pid_max_alt = 400;
+int pid_max_alt = 300;
 bool auto_level = false;                 //Auto level on (true) or off (false)
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Declaring global variables
@@ -119,6 +119,15 @@ void setup(){
   DDRD |= B01101000;                                                        //Configure digital poort 3, 5, 6 (ESC) as output.
   DDRB |= B00011110;                                                        //Configure digital poort 9, 10 ,11 (ESC) and 12(LED) as output.
 
+  //Pin Change interrupt
+  PCICR |= (1 << PCIE0);                                                    // Enable pin change interrupt on enabled pins PCINT[7:0] - pins 8-13
+  PCICR |= (1 << PCIE2);                                                    // Enable pin change interrupt on enabled pins PCINT[23:16]
+
+  PCMSK0 |= (1 << PCINT0);                                                  // set PCINT0 (digital input 8) to trigger an interrupt on state change.
+  PCMSK0 |= (1 << PCINT5);                                                  // set PCINT5 - PB5 (digital input 13) to trigger an interrupt on state change.
+  PCMSK2 |= (1 << PCINT18);                                                 // set PCINT18 (digital input 2) to trigger an interrupt on state change.
+  PCMSK2 |= (1 << PCINT20);                                                 // set PCINT20 (digital input 4) to trigger an interrupt on state change.
+  PCMSK2 |= (1 << PCINT23);                                                 // set PCINT23 (digital input 7) to trigger an interrupt on state change.
 
   //Use the led on the Arduino for startup indication.
   //digitalWrite(12,HIGH);                                                    //Turn on the warning led.
@@ -133,6 +142,7 @@ void setup(){
 
   initialise_imu();                                                         //Set the specific gyro registers.
 
+  //Send a 1000us pulse to motors so they won't keep beeping
   for (cal_int = 0; cal_int < 1250 ; cal_int ++){                           //Wait 5 seconds before continuing.
     PORTD |= B01101000;                                                     //Set digital port 3, 5 and 6  high
     PORTB |= B00001110;                                                     //Set digital port 9, 10 and 11 high
@@ -161,15 +171,6 @@ void setup(){
   gyro_axis_cal[1] /= 2000;                                                 //Divide the roll total by 2000.
   gyro_axis_cal[2] /= 2000;                                                 //Divide the pitch total by 2000.
   gyro_axis_cal[3] /= 2000;                                                 //Divide the yaw total by 2000.
-
-  PCICR |= (1 << PCIE0);                                                    // Enable pin change interrupt on enabled pins PCINT[7:0] - pins 8-13
-  PCICR |= (1 << PCIE2);                                                    // Enable pin change interrupt on enabled pins PCINT[23:16]
-
-  PCMSK0 |= (1 << PCINT0);                                                  // set PCINT0 (digital input 8) to trigger an interrupt on state change.
-  PCMSK0 |= (1 << PCINT5);                                                  // set PCINT5 - PB5 (digital input 13) to trigger an interrupt on state change.
-  PCMSK2 |= (1 << PCINT18);                                                 // set PCINT18 (digital input 2) to trigger an interrupt on state change.
-  PCMSK2 |= (1 << PCINT20);                                                 // set PCINT20 (digital input 4) to trigger an interrupt on state change.
-  PCMSK2 |= (1 << PCINT23);                                                 // set PCINT23 (digital input 7) to trigger an interrupt on state change.
 
   //Wait until the receiver is active and the throtle is set to the lower position.
   while(receiver_input_channel_3 < 990 || receiver_input_channel_3 > 1020 || receiver_input_channel_4 < 1400){
@@ -204,7 +205,6 @@ void setup(){
   //When everything is done, turn off the led.
   //digitalWrite(12,LOW);                                                     //Turn off the warning led.
   PORTB &= B11101111;
-  pid_alt_setpoint = 0;
   
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -212,8 +212,7 @@ void setup(){
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void loop(){
 
-  //if(start == 2)print_telemetry();
-
+  //Calculate gyroscope inputs for calculate_pid()
   //65.5 = 1 deg/sec (check the datasheet of the MPU-6050 for more information).
   gyro_roll_input = (gyro_roll_input * 0.7) + ((gyro_roll / 65.5) * 0.3);   //Gyro pid input is deg/sec.
   gyro_pitch_input = (gyro_pitch_input * 0.7) + ((gyro_pitch / 65.5) * 0.3);//Gyro pid input is deg/sec.
@@ -240,6 +239,8 @@ void loop(){
   //Accelerometer angle calculations
   acc_total_vector = sqrt((acc_x*acc_x)+(acc_y*acc_y)+(acc_z*acc_z));       //Calculate the total accelerometer vector.
   
+
+  //57 = 1/(3.142 / 180)
   if(abs(acc_y) < acc_total_vector){                                        //Prevent the asin function to produce a NaN
     angle_pitch_acc = asin((float)acc_y/acc_total_vector)* 57.296;          //Calculate the pitch angle.
   }
@@ -266,6 +267,7 @@ void loop(){
   {  
     first_reading = true;
     altitude = -1;                                                        //If the quadcopter is not in auto-level mode
+    pid_alt_setpoint = 0;
     pitch_level_adjust = 0;                                                 //Set the pitch angle correction to zero.
     roll_level_adjust = 0;                                                  //Set the roll angle correcion to zero.
   }
@@ -321,8 +323,6 @@ void loop(){
     if(receiver_input_channel_4 > 1508)pid_yaw_setpoint = (receiver_input_channel_4 - 1508)/3.0;
     else if(receiver_input_channel_4 < 1492)pid_yaw_setpoint = (receiver_input_channel_4 - 1492)/3.0;
   }
-
-  pid_output_alt = 0;
   
   calculate_pid();                                                            //PID inputs are known. So we can calculate the pid output.
 
@@ -596,25 +596,34 @@ void calculate_pid(){
 
   if ((auto_level) && (altitude != -1))
   {
-    //Altitude Calculations
-    //pid_error_temp = altitude - pid_alt_setpoint;
-    //pid_i_mem_alt += pid_i_gain_alt * pid_error_temp;
-    //if(pid_i_mem_alt > pid_max_alt)pid_i_mem_alt = pid_max_alt;
-    //else if(pid_i_mem_alt < pid_max_alt * -1)pid_i_mem_alt = pid_max_alt * -1;
-
-    //pid_output_alt = pid_p_gain_alt * pid_error_temp + pid_i_mem_alt + pid_d_gain_alt * (pid_error_temp - pid_last_alt_d_error);
-    //if(pid_output_alt > pid_max_alt)pid_output_alt = pid_max_alt;
-    //else if(pid_output_alt < pid_max_alt * -1)pid_output_alt = pid_max_alt * -1;
-
-    //pid_last_alt_d_error = pid_error_temp;
-    if((altitude - pid_alt_setpoint) > 50)pid_output_alt -= 1;         //Above setpoint with 10cm - thottle down
-    else if((altitude - pid_alt_setpoint) < -50) pid_output_alt += 1;  //Below setpoint with 10cm - thottle up
-
-    if(pid_output_alt > pid_max_alt)pid_output_alt = pid_max_alt;
-    else if(pid_output_alt < pid_max_alt * -1)pid_output_alt = pid_max_alt * -1;
-
- 
+    calculate_alt_simple();
+    //calculate_alt_pid();
   }
+}
+
+void calculate_alt_pid()
+{
+  pid_error_temp = altitude - pid_alt_setpoint;
+  pid_i_mem_alt += pid_i_gain_alt * pid_error_temp;
+  if(pid_i_mem_alt > pid_max_alt)pid_i_mem_alt = pid_max_alt;
+  else if(pid_i_mem_alt < pid_max_alt * -1)pid_i_mem_alt = pid_max_alt * -1;
+
+  pid_output_alt = pid_p_gain_alt * pid_error_temp + pid_i_mem_alt + pid_d_gain_alt * (pid_error_temp - pid_last_alt_d_error);
+  if(pid_output_alt > pid_max_alt)pid_output_alt = pid_max_alt;
+  else if(pid_output_alt < pid_max_alt * -1)pid_output_alt = pid_max_alt * -1;
+
+  pid_last_alt_d_error = pid_error_temp;
+}
+
+void calculate_alt_simple()
+{
+  //Altitude Calculations
+  if((altitude - pid_alt_setpoint) > 50)pid_output_alt -= 1;         //Above setpoint with 10cm - thottle down
+  else if((altitude - pid_alt_setpoint) < -50) pid_output_alt += 1;  //Below setpoint with 10cm - thottle up
+
+  if(pid_output_alt > pid_max_alt)pid_output_alt = pid_max_alt;
+  else if(pid_output_alt < pid_max_alt * -1)pid_output_alt = pid_max_alt * -1; 
+
 }
 
 //This part converts the actual receiver signals to a standardized 1000 – 1500 – 2000 microsecond value.
@@ -738,7 +747,7 @@ void read_altitude_v2()
 
 void read_altitude()
 {
-  pid_alt_setpoint = 1500;
+  pid_alt_setpoint = 1400;
 
   if(Serial.available() >= 6)
   {
@@ -765,12 +774,12 @@ void read_altitude()
     if (correct_data) 
     {
       altitude = inStr.toInt();
-      Serial.println(altitude);
-      //if (first_reading == true)
-      //{
-      //  pid_alt_setpoint = altitude;
-      //  first_reading = false;
-      //}
+      //Serial.println(altitude);
+      if (first_reading == true)
+      {
+        //pid_alt_setpoint = altitude;
+        first_reading = false;
+      }
     }
 
     //Cleanup

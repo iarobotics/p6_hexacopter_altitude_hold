@@ -24,7 +24,7 @@ byte lowByte, highByte, type, gyro_address, error, clockspeed_ok;
 byte channel_1_assign, channel_2_assign, channel_3_assign, channel_4_assign, channel_5_assign;
 byte roll_axis, pitch_axis, yaw_axis;
 byte receiver_check_byte, gyro_check_byte;
-volatile int receiver_input_channel_1, receiver_input_channel_2, receiver_input_channel_3, , receiver_input_channel_5;
+volatile int receiver_input_channel_1, receiver_input_channel_2, receiver_input_channel_3, receiver_input_channel_4, receiver_input_channel_5;
 int center_channel_1, center_channel_2, center_channel_3, center_channel_4;
 int high_channel_1, high_channel_2, high_channel_3, high_channel_4;
 int low_channel_1, low_channel_2, low_channel_3, low_channel_4;
@@ -671,17 +671,19 @@ void check_gyro_axes(byte movement){
     delayMicroseconds(3700); //Loop is running @ 250Hz. +/-300us is used for communication with the gyro
   }
   //Assign the moved axis to the orresponding function (pitch, roll, yaw)
-  if((gyro_angle_roll < -30 || gyro_angle_roll > 30) && gyro_angle_pitch > -30 && gyro_angle_pitch < 30 && gyro_angle_yaw > -30 && gyro_angle_yaw < 30){
+  if((gyro_angle_roll < -30 || gyro_angle_roll > 30) && 
+      gyro_angle_pitch > -30 && gyro_angle_pitch < 30 &&
+      gyro_angle_yaw > -30 && gyro_angle_yaw < 30){ // The IMU registers a roll
     gyro_check_byte |= 0b00000001;
     if(gyro_angle_roll < 0)trigger_axis = 0b10000001;
     else trigger_axis = 0b00000001;
   }
-  if((gyro_angle_pitch < -30 || gyro_angle_pitch > 30) && gyro_angle_roll > -30 && gyro_angle_roll < 30 && gyro_angle_yaw > -30 && gyro_angle_yaw < 30){
+  if((gyro_angle_pitch < -30 || gyro_angle_pitch > 30) && gyro_angle_roll > -30 && gyro_angle_roll < 30 && gyro_angle_yaw > -30 && gyro_angle_yaw < 30){ // The IMU registers a pitch
     gyro_check_byte |= 0b00000010;
     if(gyro_angle_pitch < 0)trigger_axis = 0b10000010;
     else trigger_axis = 0b00000010;
   }
-  if((gyro_angle_yaw < -30 || gyro_angle_yaw > 30) && gyro_angle_roll > -30 && gyro_angle_roll < 30 && gyro_angle_pitch > -30 && gyro_angle_pitch < 30){
+  if((gyro_angle_yaw < -30 || gyro_angle_yaw > 30) && gyro_angle_roll > -30 && gyro_angle_roll < 30 && gyro_angle_pitch > -30 && gyro_angle_pitch < 30){// The IMU registers a yaw
     gyro_check_byte |= 0b00000100;
     if(gyro_angle_yaw < 0)trigger_axis = 0b10000011;
     else trigger_axis = 0b00000011;
