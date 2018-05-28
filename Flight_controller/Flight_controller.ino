@@ -21,22 +21,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //PID gain and limit settings
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//float pid_p_gain_roll = 1.3;               //Gain setting for the roll P-controller
-//float pid_i_gain_roll = 0.04;              //Gain setting for the roll I-controller
-//float pid_d_gain_roll = 18.0;              //Gain setting for the roll D-controller
-//int pid_max_roll = 400;                    //Maximum output of the PID-controller (+/-)
-//
-//float pid_p_gain_pitch = pid_p_gain_roll;  //Gain setting for the pitch P-controller.
-//float pid_i_gain_pitch = pid_i_gain_roll;  //Gain setting for the pitch I-controller.
-//float pid_d_gain_pitch = pid_d_gain_roll;  //Gain setting for the pitch D-controller.
-//int pid_max_pitch = pid_max_roll;          //Maximum output of the PID-controller (+/-)
-//
-//float pid_p_gain_yaw = 4.0;                //Gain setting for the pitch P-controller. //4.0
-//float pid_i_gain_yaw = 0.02;               //Gain setting for the pitch I-controller. //0.02
-//float pid_d_gain_yaw = 0.0;                //Gain setting for the pitch D-controller.
-//int pid_max_yaw = 400;                     //Maximum output of the PID-controller (+/-)
-//
-//boolean auto_level = true;                 //Auto level on (true) or off (false)
+
 float pid_p_gain_roll = 2.0;               //Gain setting for the roll P-controller //2.0
 float pid_i_gain_roll = 0.0;              //Gain setting for the roll I-controller
 float pid_d_gain_roll = 30.0;              //Gain setting for the roll D-controller
@@ -55,7 +40,7 @@ float pid_d_gain_alt = 0.0;                //Gain setting for the altitude D-con
 
 int pid_max_yaw = 400;                     //Maximum output of the PID-controller (+/-)
 int pid_max_alt = 300;
-bool auto_level = false;                 //Auto level on (true) or off (false)
+bool stabilise = false;                 //Auto level on (true) or off (false)
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Declaring global variables
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -82,7 +67,7 @@ float pid_error_temp;
 float pid_i_mem_roll, pid_roll_setpoint, gyro_roll_input, pid_output_roll, pid_last_roll_d_error;
 float pid_i_mem_pitch, pid_pitch_setpoint, gyro_pitch_input, pid_output_pitch, pid_last_pitch_d_error;
 float pid_i_mem_yaw, pid_yaw_setpoint, gyro_yaw_input, pid_output_yaw, pid_last_yaw_d_error;
-float pid_i_mem_alt, altitude_input, pid_last_alt_d_error;
+float pid_i_mem_alt, pid_alt_setpoint, altitude_input, pid_last_alt_d_error, pid_output_alt;
 float angle_roll_acc, angle_pitch_acc, angle_pitch, angle_roll;
 bool gyro_angles_set, esc_on;
 
@@ -93,13 +78,7 @@ String inStr = "";
 bool correct_data;
 int altitude = -1;
 bool first_reading = true;
-int pid_alt_setpoint;
-int pid_output_alt;
-
-//Serial read_altitude_v2
-//byte data[6];
 int loop_counter = 0;
-//bool new_function_request;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Setup routine
@@ -159,7 +138,7 @@ void setup(){
     gyro_axis_cal[1] += gyro_axis[1];                                       //Ad roll value to gyro_roll_cal.
     gyro_axis_cal[2] += gyro_axis[2];                                       //Ad pitch value to gyro_pitch_cal.
     gyro_axis_cal[3] += gyro_axis[3];                                       //Ad yaw value to gyro_yaw_cal.
-    //We don't want the esc's to be beeping annoyingly. So let's give them a 1000us puls while calibrating the gyro.
+    //We don't want the esc's to beeep annoyingly. So let's give them a 1000us puls while calibrating the gyro.
     PORTD |= B01101000;                                                     //Set digital port 3, 5 and 6  high
     PORTB |= B00001110;                                                     //Set digital port 9, 10 and 11 high
     delayMicroseconds(1000);                                                //Wait 1000us.
@@ -177,7 +156,7 @@ void setup(){
     receiver_input_channel_3 = convert_receiver_channel(3);                 //Convert the actual receiver signals for throttle to the standard 1000 - 2000us
     receiver_input_channel_4 = convert_receiver_channel(4);                 //Convert the actual receiver signals for yaw to the standard 1000 - 2000us
     start ++;                                                               //While waiting increment start whith every loop.
-    //We don't want the esc's to be beeping annoyingly. So let's give them a 1000us puls while waiting for the receiver inputs.
+    //We don't want the esc's to beep annoyingly. So let's give them a 1000us puls while waiting for the receiver inputs.
     PORTD |= B01101000;                                                     //Set digital port 3, 5 and 6  high
     PORTB |= B00001110;                                                     //Set digital port 9, 10 and 11 high
     delayMicroseconds(1000);                                                //Wait 1000us.
@@ -211,21 +190,12 @@ void setup(){
 //Main program loop
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void loop(){
-
-  //Calculate gyroscope inputs for calculate_pid()
-  //65.5 = 1 deg/sec (check the datasheet of the MPU-6050 for more information).
   gyro_roll_input = (gyro_roll_input * 0.7) + ((gyro_roll / 65.5) * 0.3);   //Gyro pid input is deg/sec.
   gyro_pitch_input = (gyro_pitch_input * 0.7) + ((gyro_pitch / 65.5) * 0.3);//Gyro pid input is deg/sec.
   gyro_yaw_input = (gyro_yaw_input * 0.7) + ((gyro_yaw / 65.5) * 0.3);      //Gyro pid input is deg/sec.
 
-  if (receiver_input_channel_5 > 1500)auto_level=true;
-  else auto_level=false;
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////////
-    //This is the added IMU code from the videos:
-    //https://youtu.be/4BoIE8YQwM8
-    //https://youtu.be/j-kE0AMEWy4
-    ////////////////////////////////////////////////////////////////////////////////////////////////////
+  if (receiver_input_channel_5 > 1500)stabilise=true;
+  else stabilise=false;
     
   //Gyro angle calculations
   //0.0000611 = 1 / (250Hz / 65.5)
@@ -236,16 +206,19 @@ void loop(){
   angle_pitch -= angle_roll * sin(gyro_yaw * 0.000001066);                  //If the IMU has yawed transfer the roll angle to the pitch angel.
   angle_roll += angle_pitch * sin(gyro_yaw * 0.000001066);                  //If the IMU has yawed transfer the pitch angle to the roll angel.
 
-  //Accelerometer angle calculations
+  //Accelerometer angle calculations - The drone should not be moving
   acc_total_vector = sqrt((acc_x*acc_x)+(acc_y*acc_y)+(acc_z*acc_z));       //Calculate the total accelerometer vector.
   
 
   //57 = 1/(3.142 / 180)
+  //90deg - acos(...) to make it easier to understand
   if(abs(acc_y) < acc_total_vector){                                        //Prevent the asin function to produce a NaN
-    angle_pitch_acc = asin((float)acc_y/acc_total_vector)* 57.296;          //Calculate the pitch angle.
+    //angle_pitch_acc = asin((float)acc_y/acc_total_vector)* 57.296;          //Calculate the pitch angle.
+    angle_pitch_acc = acos((float)acc_y/acc_total_vector)* 57.296;
   }
   if(abs(acc_x) < acc_total_vector){                                        //Prevent the asin function to produce a NaN
-    angle_roll_acc = asin((float)acc_x/acc_total_vector)* -57.296;          //Calculate the roll angle.
+    //angle_roll_acc = asin((float)acc_x/acc_total_vector)* -57.296;          //Calculate the roll angle.
+    angle_roll_acc = acos((float)acc_x/acc_total_vector)* -57.296;
   }
   
   //Place the MPU-6050 spirit level and note the values in the following two lines for calibration.
@@ -255,7 +228,7 @@ void loop(){
   angle_pitch = angle_pitch * 0.9996 + angle_pitch_acc * 0.0004;            //Correct the drift of the gyro pitch angle with the accelerometer pitch angle.
   angle_roll = angle_roll * 0.9996 + angle_roll_acc * 0.0004;               //Correct the drift of the gyro roll angle with the accelerometer roll angle.
 
-  if(auto_level)    //If the quadcopter is in auto-level mode
+  if(stabilise)    //If the quadcopter is in Stabilise mode
   {
     pitch_level_adjust = angle_pitch * 15;                                    //Calculate the pitch angle correction
     roll_level_adjust = angle_roll * 15;                                      //Calculate the roll angle correction
@@ -267,7 +240,9 @@ void loop(){
   {  
     first_reading = true;
     altitude = -1;                                                        //If the quadcopter is not in auto-level mode
+    altitude_input = 0;
     pid_alt_setpoint = 0;
+    
     pitch_level_adjust = 0;                                                 //Set the pitch angle correction to zero.
     roll_level_adjust = 0;                                                  //Set the roll angle correcion to zero.
   }
@@ -286,10 +261,16 @@ void loop(){
     //Reset the PID controllers for a bumpless start.
     pid_i_mem_roll = 0;
     pid_last_roll_d_error = 0;
+
     pid_i_mem_pitch = 0;
     pid_last_pitch_d_error = 0;
+
     pid_i_mem_yaw = 0;
     pid_last_yaw_d_error = 0;
+
+    pid_i_mem_alt = 0;
+    pid_last_alt_d_error = 0;
+
   }
   //Stopping the motors: throttle low and yaw right.
   if(start == 2 && receiver_input_channel_3 < 1050 && receiver_input_channel_4 > 1950)start = 0;
@@ -315,24 +296,19 @@ void loop(){
   pid_pitch_setpoint -= pitch_level_adjust;                                  //Subtract the angle correction from the standardized receiver pitch input value.
   pid_pitch_setpoint /= 3.0;                                                 //Divide the setpoint for the PID pitch controller by 3 to get angles in degrees.
 
-  //The PID set point in degrees per second is determined by the yaw receiver input.
-  //In the case of deviding by 3 the max yaw rate is aprox 164 degrees per second ( (500-8)/3 = 164d/s ).
+  //Calculate Yaw setpoint
   pid_yaw_setpoint = 0;
-  //We need a little dead band of 16us for better results.
-  if(receiver_input_channel_3 > 1050){ //Do not yaw when turning off the motors.
-    if(receiver_input_channel_4 > 1508)pid_yaw_setpoint = (receiver_input_channel_4 - 1508)/3.0;
-    else if(receiver_input_channel_4 < 1492)pid_yaw_setpoint = (receiver_input_channel_4 - 1492)/3.0;
+  //Do not yaw when turning off the motors.
+  if(receiver_input_channel_3 > 1050)
+  { 
+    if(receiver_input_channel_4 > 1508)pid_yaw_setpoint = receiver_input_channel_4 - 1508;
+    else if(receiver_input_channel_4 < 1492)pid_yaw_setpoint = receiver_input_channel_4 - 1492;
+
+    pid_yaw_setpoint /= 3.0;
   }
   
-  calculate_pid();                                                            //PID inputs are known. So we can calculate the pid output.
+  calculate_pid();                                                          //PID inputs are known. So we can calculate the pid output.
 
-  //The battery voltage is needed for compensation.
-  //A complementary filter is used to reduce noise.
-  //0.09853 = 0.08 * 1.2317.
-  //battery_voltage = battery_voltage * 0.92 + (analogRead(0) + 65) * 0.09853;
-
-  //Turn on the led if battery voltage is to0 low.
-  //if(battery_voltage < 1000 && battery_voltage > 600)digitalWrite(12, HIGH);
 
 
   throttle = receiver_input_channel_3;                                      //We need the throttle signal as a base signal.
@@ -347,13 +323,6 @@ void loop(){
     esc_4 = throttle + pid_output_pitch - pid_output_roll + pid_output_yaw + pid_output_alt;   //rear-left CW
     esc_5 = throttle                    - pid_output_roll - pid_output_yaw + pid_output_alt;   //left CCW
     esc_6 = throttle - pid_output_pitch - pid_output_roll + pid_output_yaw + pid_output_alt;   //front-left CW
-
-    //if (battery_voltage < 1240 && battery_voltage > 800){                   //Is the battery connected?
-    //  esc_1 += esc_1 * ((1240 - battery_voltage)/(float)3500);              //Compensate the esc-1 pulse for voltage drop.
-    //  esc_2 += esc_2 * ((1240 - battery_voltage)/(float)3500);              //Compensate the esc-2 pulse for voltage drop.
-    //  esc_3 += esc_3 * ((1240 - battery_voltage)/(float)3500);              //Compensate the esc-3 pulse for voltage drop.
-    //  esc_4 += esc_4 * ((1240 - battery_voltage)/(float)3500);              //Compensate the esc-4 pulse for voltage drop.
-    //} 
 
     if (esc_1 < 1100) esc_1 = 1100;                                         //Keep the motors running.
     if (esc_2 < 1100) esc_2 = 1100;                                         //Keep the motors running.
@@ -376,20 +345,13 @@ void loop(){
     esc_2 = 1000;                                                           //If start is not 2 keep a 1000us pulse for ess-2.
     esc_3 = 1000;                                                           //If start is not 2 keep a 1000us pulse for ess-3.
     esc_4 = 1000;                                                           //If start is not 2 keep a 1000us pulse for ess-4.
-    esc_5 = 1000;
-    esc_6 = 1000;
+    esc_5 = 1000;                                                           //If start is not 2 keep a 1000us pulse for ess-5.
+    esc_6 = 1000;                                                           //If start is not 2 keep a 1000us pulse for ess-6.
   }
-
-  ////////////////////////////////////////////////////////////////////////////////////////////////////
-  //Creating the pulses for the ESC's is explained in this video:
-  //https://youtu.be/fqEkVcqxtU8
-  ////////////////////////////////////////////////////////////////////////////////////////////////////
 
   //! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! !
   //Because of the angle calculation the loop time is getting very important. If the loop time is 
-  //longer or shorter than 4000us the angle calculation is off. If you modify the code make sure 
-  //that the loop time is still 4000us and no longer! More information can be found on 
-  //the Q&A page: 
+  //longer or shorter than 4000us the angle calculation is off.
   //! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! !
     
   if(micros() - loop_timer > 4050)PORTB |= B00010000;//digitalWrite(12, HIGH);                   //Turn on the LED if the loop time exceeds 4050us.
@@ -406,21 +368,14 @@ void loop(){
   timer_channel_2 = esc_2 + loop_timer;                                     //Calculate the time of the faling edge of the esc-2 pulse.
   timer_channel_3 = esc_3 + loop_timer;                                     //Calculate the time of the faling edge of the esc-3 pulse.
   timer_channel_4 = esc_4 + loop_timer;                                     //Calculate the time of the faling edge of the esc-4 pulse.
-  timer_channel_5 = esc_5 + loop_timer;
-  timer_channel_6 = esc_6 + loop_timer;
+  timer_channel_5 = esc_5 + loop_timer;                                     //Calculate the time of the faling edge of the esc-5 pulse.
+  timer_channel_6 = esc_6 + loop_timer;                                     //Calculate the time of the faling edge of the esc-6 pulse.
   esc_on = true;
   
   //There is always 1000us of spare time. So let's do something usefull that is very time consuming.
   //Get the current gyro and receiver data and scale it to degrees per second for the pid calculations.
   read_imu();
 
-  //while(PORTD >= 16){                                                       //Stay in this loop until output 4,5,6 and 7 are low.
-  //  esc_loop_timer = micros();                                              //Read the current time.
-  //  if(timer_channel_1 <= esc_loop_timer)PORTD &= B11101111;                //Set digital output 4 to low if the time is expired.
-  //  if(timer_channel_2 <= esc_loop_timer)PORTD &= B11011111;                //Set digital output 5 to low if the time is expired.
-  //  if(timer_channel_3 <= esc_loop_timer)PORTD &= B10111111;                //Set digital output 6 to low if the time is expired.
-  //  if(timer_channel_4 <= esc_loop_timer)PORTD &= B01111111;                //Set digital output 7 to low if the time is expired.
-  //}
   while(esc_on == true){                                                //Execute the loop until digital port 3 to 11 is low.
     if((PORTD == 0)&&(PORTB == 0))esc_on=false;
     esc_loop_timer = micros();                                   //Check the current time.
@@ -435,9 +390,7 @@ void loop(){
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//This routine is called every time input 8, 9, 10 or 11 changed state. This is used to read the receiver signals. 
-//More information about this subroutine can be found in this video:
-//https://youtu.be/bENjl1KQbvo
+//This routine is called every time input 2, 4, 7, 8, 13. This is used to read the transmitter signals. 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ISR(PCINT2_vect){
   current_time = micros();
@@ -554,9 +507,6 @@ void read_imu(){
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Subroutine for calculating pid outputs
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//The PID controllers are explained in part 5 of the YMFC-3D video session:
-//https://youtu.be/JBvnB0279-Q 
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void calculate_pid(){
   //Roll calculations
   pid_error_temp = gyro_roll_input - pid_roll_setpoint;
@@ -594,16 +544,26 @@ void calculate_pid(){
 
   pid_last_yaw_d_error = pid_error_temp;
 
-  if ((auto_level) && (altitude != -1))
+  if ((stabilise) && (altitude != -1))
   {
-    calculate_alt_simple();
-    //calculate_alt_pid();
+    pid_error_temp = altitude_input - pid_alt_setpoint;
+    pid_i_mem_alt += pid_i_gain_alt * pid_error_temp;
+    
+    if(pid_i_mem_alt > pid_max_alt)pid_i_mem_alt = pid_max_alt;
+    else if(pid_i_mem_alt < pid_max_alt * -1)pid_i_mem_alt = pid_max_alt * -1;
+
+    pid_output_alt = pid_p_gain_alt * pid_error_temp + pid_i_mem_alt + pid_d_gain_alt * (pid_error_temp - pid_last_alt_d_error);
+    
+    if(pid_output_alt > pid_max_alt)pid_output_alt = pid_max_alt;
+    else if(pid_output_alt < pid_max_alt * -1)pid_output_alt = pid_max_alt * -1;
+
+  pid_last_alt_d_error = pid_error_temp;
   }
 }
 
 void calculate_alt_pid()
 {
-  pid_error_temp = altitude - pid_alt_setpoint;
+  pid_error_temp = altitude_input - pid_alt_setpoint;
   pid_i_mem_alt += pid_i_gain_alt * pid_error_temp;
   if(pid_i_mem_alt > pid_max_alt)pid_i_mem_alt = pid_max_alt;
   else if(pid_i_mem_alt < pid_max_alt * -1)pid_i_mem_alt = pid_max_alt * -1;
@@ -617,6 +577,7 @@ void calculate_alt_pid()
 
 void calculate_alt_simple()
 {
+  //Uses the integer altitude value instead of float altitude_input
   //Altitude Calculations
   if((altitude - pid_alt_setpoint) > 50)pid_output_alt -= 1;         //Above setpoint with 10cm - thottle down
   else if((altitude - pid_alt_setpoint) < -50) pid_output_alt += 1;  //Below setpoint with 10cm - thottle up
@@ -688,7 +649,7 @@ void initialise_imu(){
     Wire.requestFrom(gyro_address, 1);                                         //Request 1 bytes from the gyro
     while(Wire.available() < 1);                                               //Wait until the 6 bytes are received
     if(Wire.read() != 0x08){                                                   //Check if the value is 0x08
-      //digitalWrite(12,HIGH);                                                   //Turn on the warning led
+      //digitalWrite(12,HIGH);                                                 //Turn on the warning led
       PORTB |= B00010000;
       while(1)delay(10);                                                       //Stay in this loop for ever
     }
@@ -701,53 +662,10 @@ void initialise_imu(){
   }  
 }
 
-void read_altitude_v2()
-{
-  if(Serial.available() > 0)
-  {
-    inData[index] = Serial.read();
-
-    if(index >= 5) index = 0;
-    else index++;
-  }
-
-  if ((inData[0]=='<') && (inData[5] == '>'))
-  {
-    correct_data = false;     
-    for(int i = 1; i < 5; i++)
-    {
-      if (isDigit(inData[i])) 
-      {
-        correct_data = true;
-        inStr += char(inData[i]);
-      }
-      else correct_data = false;
-    }
-    
-    if (correct_data) 
-    {
-      altitude = inStr.toInt();
-      //Serial.println(altitude);
-      if (first_reading == true)
-      {
-        pid_alt_setpoint = altitude;
-        first_reading = false;
-      }
-    }
-    //else altitude = -1;
-    
-    //Cleanup
-    inStr = "";
-    for(int i = 0; i < 6; i++)
-    {
-      inData[i] = '#';
-    }
-  }
-}
 
 void read_altitude()
 {
-  pid_alt_setpoint = 1400;
+  //pid_alt_setpoint = 1400;
 
   if(Serial.available() >= 6)
   {
@@ -774,10 +692,12 @@ void read_altitude()
     if (correct_data) 
     {
       altitude = inStr.toInt();
+      //Transfer to float
+      altitude_input = altitude;
       //Serial.println(altitude);
       if (first_reading == true)
       {
-        //pid_alt_setpoint = altitude;
+        pid_alt_setpoint = altitude;
         first_reading = false;
       }
     }
@@ -795,7 +715,7 @@ void print_telemetry()
 {
   //We can't print all the data at once. This takes to long and the angular readings will be off.
   if(loop_counter == 0)Serial.print("<");
-  if(loop_counter == 1)Serial.print(auto_level);
+  if(loop_counter == 1)Serial.print(stabilise);
   if(loop_counter == 2)Serial.print(",");
   if(loop_counter == 3)Serial.print(receiver_input_channel_1); //Roll
   if(loop_counter == 4)Serial.print(",");

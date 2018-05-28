@@ -54,10 +54,7 @@ void setup(){
   delay(250);               //Give the gyro time to start 
 }
 //Main program
-void loop(){
-  //Show the YMFC-3D V2 intro
-  intro();
-  
+void loop(){  
   Serial.println(F(""));
   Serial.println(F("==================================================="));
   Serial.println(F("System check"));
@@ -766,25 +763,3 @@ ISR(PCINT0_vect){
   }
 }
 
-//Intro subroutine
-void intro(){
-  Serial.println(F("==================================================="));
-  delay(1500);
-  Serial.println(F(""));
-  Serial.println(F("Your"));
-  delay(500);
-  Serial.println(F("  Multicopter"));
-  delay(500);
-  Serial.println(F("    Flight"));
-  delay(500);
-  Serial.println(F("      Controller"));
-  delay(1000);
-  Serial.println(F(""));
-  Serial.println(F("YMFC-AL Setup Program"));
-  Serial.println(F(""));
-  Serial.println(F("==================================================="));
-  delay(1500);
-  Serial.println(F("For support and questions: www.brokking.net"));
-  Serial.println(F(""));
-  Serial.println(F("Have fun!"));
-}
